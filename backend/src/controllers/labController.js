@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 const fhirService = require('../services/fhirService');
-
+const externalFhirService = require('../services/externalFhirService');
 
 const genId = () => `LAB-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -22,6 +22,7 @@ const mapLabOrder = (lab) => {
         critical: lab.critical,
         resultFields: lab.resultFields ? JSON.parse(lab.resultFields) : {},
         processedBy: lab.processedBy,
+        externalReferenceId: lab.externalReferenceId,
         createdAt: lab.createdAt,
         updatedAt: lab.updatedAt
     };
@@ -66,6 +67,18 @@ class LabController {
                     }
                 })
                 .catch(err => console.error('[FHIR] LabOrder sync failed:', err.message));
+
+            // Submit to External Lab (fire-and-forget, non-blocking)
+            externalFhirService.submitLabOrder(labOrder)
+                .then(res => {
+                    if (res && res.id) {
+                        prisma.labOrder.update({
+                            where: { id: labOrder.id },
+                            data: { externalReferenceId: res.id }
+                        }).catch(e => console.error('[External FHIR] Failed to save externalReferenceId in LabOrder:', e.message));
+                    }
+                })
+                .catch(err => console.error('[External FHIR] LabOrder external submission failed:', err.message));
 
             return res.status(201).json({ success: true, data: mapLabOrder(labOrder) });
         } catch (err) {

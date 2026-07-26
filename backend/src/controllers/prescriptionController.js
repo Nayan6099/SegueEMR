@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 const fhirService = require('../services/fhirService');
-
+const externalFhirService = require('../services/externalFhirService');
 
 const genId = () => `RX-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -19,6 +19,7 @@ const mapPrescription = (rx) => {
         status: rx.status,
         dispensedBy: rx.dispensedBy,
         dispensedAt: rx.dispensedAt,
+        externalReferenceId: rx.externalReferenceId,
         createdAt: rx.createdAt,
         updatedAt: rx.updatedAt,
         medications: (rx.medications || []).map(med => ({
@@ -78,6 +79,18 @@ class PrescriptionController {
                     }
                 })
                 .catch(err => console.error('[FHIR] Prescription sync failed:', err.message));
+
+            // Submit to External Pharmacy (fire-and-forget, non-blocking)
+            externalFhirService.submitPrescription(prescription)
+                .then(res => {
+                    if (res && res.id) {
+                        prisma.prescription.update({
+                            where: { id: prescription.id },
+                            data: { externalReferenceId: res.id }
+                        }).catch(e => console.error('[External FHIR] Failed to save externalReferenceId in Prescription:', e.message));
+                    }
+                })
+                .catch(err => console.error('[External FHIR] Prescription external submission failed:', err.message));
 
             return res.status(201).json({ success: true, data: mapPrescription(prescription) });
         } catch (err) {

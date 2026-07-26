@@ -25,9 +25,10 @@ import {
   AlertCircle,
   FlaskConical,
   Pill,
+  Bell,
   Activity as LogActivityIcon
 } from 'lucide-react';
-import api, { User, EMRRecord, Appointment, Prescription, LabOrder, Invoice, Vitals, Medicine, Setting, Organization, PatientRecord } from '../services/api';
+import api, { User, EMRRecord, Appointment, Prescription, LabOrder, Invoice, Vitals, Medicine, Setting, Organization, PatientRecord, AppNotification } from '../services/api';
 
 const ROLE_LABELS: Record<string, string> = {
   patient: 'Patient',
@@ -263,6 +264,8 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginForm, setLoginForm] = useState({ userId: '', role: '', password: '' });
   const [activeTab, setActiveTab] = useState('overview');
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -462,6 +465,29 @@ export default function Home() {
     setInvoices([]);
     setUsers([]);
     setAnalytics(null);
+    setNotifications([]);
+  };
+
+  const handleMarkNotificationRead = async (id: string) => {
+    try {
+      const res = await api.markNotificationRead(id);
+      if (res.success) {
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      }
+    } catch (err) {
+      console.error('Failed to mark notification read', err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const res = await api.markAllNotificationsRead();
+      if (res.success) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      }
+    } catch (err) {
+      console.error('Failed to mark all notifications read', err);
+    }
   };
 
   // Data Fetchers
@@ -472,7 +498,7 @@ export default function Home() {
       const { role, userId, orgName } = currentUser;
 
       if (role === 'patient') {
-        const [recRes, aptsRes, rxRes, labsRes, invRes, algRes, prbRes, rflRes, msgRes, keysRes] = await Promise.all([
+        const [recRes, aptsRes, rxRes, labsRes, invRes, algRes, prbRes, rflRes, msgRes, keysRes, notifRes] = await Promise.all([
           api.getPatientRecords(userId, userId, orgName),
           api.listAppointments({ patientId: userId }),
           api.listPrescriptions({ patientId: userId }),
@@ -481,8 +507,9 @@ export default function Home() {
           api.getAllergies(userId),
           api.getProblems(userId),
           api.listRefillRequests(userId),
-          api.getMessages(userId, 'dr.smith'), // Default messaging contact is dr.smith
-          api.getApiKeys(userId)
+          api.getMessages(userId, 'dr.smith'),
+          api.getApiKeys(userId),
+          api.listNotifications()
         ]);
         setRecords(recRes.data || []);
         setAppointments(aptsRes.data || []);
@@ -494,19 +521,22 @@ export default function Home() {
         setRefillRequests(rflRes.data || []);
         setChatMessages(msgRes.data || []);
         setApiKeysList(keysRes.data || []);
+        setNotifications(notifRes.data || []);
       } else if (role === 'doctor') {
-        const [recordsRes, aptsRes, rxRes, labsRes, intakeRes] = await Promise.all([
+        const [recordsRes, aptsRes, rxRes, labsRes, intakeRes, notifRes] = await Promise.all([
           api.getPatientRecords(userId, userId, orgName),
           api.listAppointments({ doctorId: userId }),
           api.listPrescriptions({ doctorId: userId }),
           api.listLabOrders({ doctorId: userId }),
-          api.listIntakes({ doctorId: userId })
+          api.listIntakes({ doctorId: userId }),
+          api.listNotifications()
         ]);
         setRecords(recordsRes.data || []);
         setAppointments(aptsRes.data || []);
         setPrescriptions(rxRes.data || []);
         setLabOrders(labsRes.data || []);
         setIntakesList(intakeRes.data || []);
+        setNotifications(notifRes.data || []);
       } else if (role === 'nurse') {
         const aptsRes = await api.listAppointments();
         setAppointments(aptsRes.data || []);
@@ -1377,6 +1407,77 @@ export default function Home() {
                   {ROLE_LABELS[currentUser.role] || currentUser.role}
                 </span>
               </div>
+
+              {/* Notification Badge / Dropdown (Doctor & Patient only) */}
+              {(currentUser.role === 'doctor' || currentUser.role === 'patient') && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+                    className="relative p-1 text-slate-500 hover:text-indigo-600 transition-colors focus:outline-none rounded-full"
+                    title="In-app alerts"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {notifications.some(n => !n.read) && (
+                      <span className="absolute top-1 right-1 block h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
+                    )}
+                  </button>
+
+                  {showNotificationsDropdown && (
+                    <div className="absolute right-0 mt-2 w-80 rounded-md bg-white border border-slate-200 shadow-lg py-1 z-50">
+                      <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                        <span className="font-semibold text-xs text-slate-700">
+                          Notifications ({notifications.filter(n => !n.read).length} unread)
+                        </span>
+                        {notifications.some(n => !n.read) && (
+                          <button
+                            onClick={() => {
+                              handleMarkAllNotificationsRead();
+                              setShowNotificationsDropdown(false);
+                            }}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium bg-transparent border-0 cursor-pointer"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="px-4 py-6 text-xs text-slate-400 text-center">
+                            No notifications
+                          </div>
+                        ) : (
+                          notifications.map(notif => (
+                            <div
+                              key={notif.id}
+                              onClick={() => {
+                                handleMarkNotificationRead(notif.id);
+                                setShowNotificationsDropdown(false);
+                                if (currentUser.role === 'doctor') {
+                                  if (notif.recordType === 'LabOrder') {
+                                    setActiveTab('labs');
+                                  } else if (notif.recordType === 'Prescription') {
+                                    setActiveTab('prescriptions');
+                                  }
+                                } else if (currentUser.role === 'patient') {
+                                  if (notif.recordType === 'LabOrder' || notif.recordType === 'Prescription') {
+                                    setActiveTab('clinical');
+                                  }
+                                }
+                              }}
+                              className={`px-4 py-3 border-b border-slate-50 text-xs text-left cursor-pointer hover:bg-slate-50 transition-colors ${!notif.read ? 'bg-indigo-50/30 font-medium' : ''}`}
+                            >
+                              <div className="text-slate-700">{notif.message}</div>
+                              <div className="text-[10px] text-slate-400 mt-1">
+                                {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 onClick={handleLogout}
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"

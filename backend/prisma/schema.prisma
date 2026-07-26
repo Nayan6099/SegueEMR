@@ -121,21 +121,22 @@ model Appointment {
 }
 
 model Prescription {
-  id             String       @id @default(uuid())
-  patientId      String
-  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  patientName    String
-  doctorId       String
-  doctor         Doctor       @relation(fields: [doctorId], references: [id], onDelete: Restrict)
-  doctorName     String?
-  diagnosis      String?
-  status         String       @default("pending")
-  dispensedBy    String?
-  dispensedAt    DateTime?
-  fhirResourceId String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @default(now()) @updatedAt
-  medications    Medication[]
+  id                  String       @id @default(uuid())
+  patientId           String
+  patient             Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientName         String
+  doctorId            String
+  doctor              Doctor       @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  doctorName          String?
+  diagnosis           String?
+  status              String       @default("pending")
+  dispensedBy         String?
+  dispensedAt         DateTime?
+  fhirResourceId      String?
+  externalReferenceId String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @default(now()) @updatedAt
+  medications         Medication[]
 }
 
 model Medication {
@@ -149,22 +150,23 @@ model Medication {
 }
 
 model LabOrder {
-  id             String    @id @default(uuid())
-  patientId      String
-  patient        Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  patientName    String
-  doctorId       String
-  doctor         Doctor    @relation(fields: [doctorId], references: [id], onDelete: Restrict)
-  testName       String
-  status         String    @default("pending")
-  notes          String?
-  resultSummary  String?
-  critical       Boolean   @default(false)
-  resultFields   String?
-  processedBy    String?
-  fhirResourceId String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @default(now()) @updatedAt
+  id                  String    @id @default(uuid())
+  patientId           String
+  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientName         String
+  doctorId            String
+  doctor              Doctor    @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+  testName            String
+  status              String    @default("pending")
+  notes               String?
+  resultSummary       String?
+  critical            Boolean   @default(false)
+  resultFields        String?
+  processedBy         String?
+  fhirResourceId      String?
+  externalReferenceId String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
 }
 
 model Invoice {
@@ -216,4 +218,14 @@ model Vitals {
   spo2          Int?
   recordedBy    String
   createdAt     DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String
+  message     String
+  recordType  String
+  recordId    String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }

@@ -35,6 +35,16 @@ export interface PatientRecord {
   existing?: boolean;
 }
 
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  message: string;
+  recordType: string;
+  recordId: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface EMRRecord {
   recordId: string;
   patientId: string;
@@ -702,6 +712,22 @@ const api = {
   // --- Auth ---
   login: async (userId: string, orgName: string, role: string, password?: string): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
     const response = await axios.post(`${API_ROOT}/auth/login`, { userId, orgName, role, password });
+    return response.data;
+  },
+
+  // --- Notifications ---
+  listNotifications: async (): Promise<ApiResponse<AppNotification[]>> => {
+    const response = await axios.get(`${API_ROOT}/notifications`);
+    return response.data;
+  },
+
+  markNotificationRead: async (id: string): Promise<ApiResponse<AppNotification>> => {
+    const response = await axios.put(`${API_ROOT}/notifications/${id}/read`);
+    return response.data;
+  },
+
+  markAllNotificationsRead: async (): Promise<ApiResponse<any>> => {
+    const response = await axios.put(`${API_ROOT}/notifications/read-all`);
     return response.data;
   },
 };

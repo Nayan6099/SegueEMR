@@ -49,6 +49,8 @@ const clinicalNoteRoutes = require('./src/routes/clinicalNoteRoutes');
 const medicineRoutes = require('./src/routes/medicineRoutes');
 const organizationRoutes = require('./src/routes/organizationRoutes');
 const authRoutes = require('./src/routes/authRoutes');
+const integrationRoutes = require('./src/routes/integrationRoutes');
+const notificationRoutes = require('./src/routes/notificationRoutes');
 
 const app = express();
 const db = require('./src/config/db');
@@ -115,6 +117,8 @@ app.use('/api/vitals', vitalsRoutes);
 app.use('/api/clinical-notes', clinicalNoteRoutes);
 app.use('/api/medicines', medicineRoutes);
 app.use('/api/organization', organizationRoutes);
+app.use('/api/webhooks', integrationRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // 404 handler
 app.use((req, res) => {
