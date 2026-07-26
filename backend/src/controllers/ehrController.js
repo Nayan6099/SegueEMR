@@ -1,35 +1,49 @@
-/**
- * EHR Controller - Handles HTTP requests from frontend
- * 
- * This controller orchestrates the complete flow:
- * Frontend → Controller → IPFS + Blockchain + MongoDB
- */
-
-const fabricService = require('../services/fabricService');
-const ipfsService = require('../services/ipfsService');
-const dbService = require('../services/dbService');
 const crypto = require('crypto');
+const blobStorageService = require('../services/blobStorageService');
+const dbService = require('../services/dbService');
+const fhirService = require('../services/fhirService');
+const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
+
+/**
+ * Encrypt file using AES-256-CBC
+ */
+function encryptFile(buffer, encryptionKey) {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    return Buffer.concat([
+        iv,
+        cipher.update(buffer),
+        cipher.final()
+    ]);
+}
+
+/**
+ * Decrypt file using AES-256-CBC
+ */
+function decryptFile(encryptedBuffer, encryptionKey) {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+    const iv = encryptedBuffer.slice(0, 16);
+    const encryptedData = encryptedBuffer.slice(16);
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    return Buffer.concat([
+        decipher.update(encryptedData),
+        decipher.final()
+    ]);
+}
 
 class EHRController {
 
     /**
      * UPLOAD NEW EHR RECORD
-     * 
-     * Complete flow:
-     * 1. Upload file to IPFS
-     * 2. Create record on blockchain
-     * 3. Save metadata to MongoDB
-     * 
-     * Request body:
-     * - file: The medical file (multipart/form-data)
-     * - patientId, patientName, recordType, description
      */
     async uploadEHR(req, res) {
         try {
             console.log('\n=== NEW EHR UPLOAD REQUEST ===');
 
-            // STEP 1: Validate request
             if (!req.file) {
                 return res.status(400).json({ error: 'No file uploaded' });
             }
@@ -42,79 +56,63 @@ class EHRController {
                 });
             }
 
-            // STEP 2: Generate unique record ID
+            // Generate unique record ID
             const recordId = `EHR_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
             console.log(`Generated Record ID: ${recordId}`);
 
-            // STEP 3: Generate encryption key
+            // Generate encryption key
             const encryptionKey = crypto.randomBytes(32).toString('hex');
-            console.log('Generated encryption key');
 
-            // STEP 4: Upload file to IPFS
-            console.log('\n--- Uploading to IPFS ---');
-            const ipfsResult = await ipfsService.uploadFile(
-                req.file.buffer, 
-                encryptionKey
-            );
-            console.log(`IPFS Hash: ${ipfsResult.ipfsHash}`);
+            // Encrypt file
+            console.log('Encrypting file before upload...');
+            const encryptedBuffer = encryptFile(req.file.buffer, encryptionKey);
 
-            // STEP 5: Connect to blockchain as patient
-            console.log('\n--- Connecting to Blockchain ---');
-            await fabricService.connectToNetwork(patientId, 'patient');
+            // Upload to Azure Blob Storage
+            console.log('Uploading to Azure Blob Storage...');
+            const blobName = `${patientId}/${recordId}_${req.file.originalname}`;
+            const blobUrl = await blobStorageService.uploadBlob(blobName, encryptedBuffer, req.file.mimetype);
+            console.log(`Uploaded blob URL: ${blobUrl}`);
 
-            // STEP 6: Create record on blockchain
-            console.log('\n--- Creating Blockchain Record ---');
-            const blockchainRecord = await fabricService.createEHR(
+            // Save metadata to database (PostgreSQL)
+            console.log('Saving metadata to database...');
+            const savedMetadata = await dbService.saveMetadata({
                 recordId,
                 patientId,
                 patientName,
-                ipfsResult.ipfsHash,
-                encryptionKey,
+                blobReference: blobName, // Store blob path/name as the reference
                 recordType,
-                description || ''
-            );
-
-            // STEP 7: Save metadata to MongoDB
-            console.log('\n--- Saving Metadata to MongoDB ---');
-            await dbService.saveMetadata({
-                recordId: recordId,
-                patientId: patientId,
-                patientName: patientName,
-                ipfsHash: ipfsResult.ipfsHash,
-                recordType: recordType,
                 description: description || '',
                 fileSize: req.file.size,
-                uploadedBy: patientId,
-                encryptionKey: encryptionKey
+                uploadedBy: patientId, // patient upload self
+                encryptionKey
             });
 
-            // STEP 8: Disconnect from blockchain
-            await fabricService.disconnect();
+            console.log('=== EHR UPLOAD COMPLETE ===\n');
 
-            console.log('\n=== EHR UPLOAD COMPLETE ===\n');
+            // Sync to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncEHRRecord(savedMetadata, blobUrl)
+                .then(fhirRes => {
+                    if (fhirRes && fhirRes.id) {
+                        prisma.eHRMetadata.update({
+                            where: { recordId },
+                            data: { fhirResourceId: fhirRes.id }
+                        }).catch(e => console.error('[FHIR] Failed to update fhirResourceId in EHRMetadata:', e.message));
+                    }
+                })
+                .catch(err => console.error('[FHIR] DocumentReference sync failed:', err.message));
 
-            // STEP 9: Send response
+            await logActivity('RECORD_UPLOADED', patientId, { recordId, recordType, fileSize: req.file.size });
+
             return res.status(201).json({
                 success: true,
                 message: 'EHR record created successfully',
                 data: {
-                    recordId: recordId,
-                    ipfsHash: ipfsResult.ipfsHash,
-                    fileSize: ipfsResult.fileSize,
-                    uploadDate: blockchainRecord.createdAt,
-                    blockchainRecord: blockchainRecord
+                    recordId,
+                    blobReference: blobName,
+                    fileSize: req.file.size,
+                    uploadDate: new Date()
                 }
             });
-
-            // Step 10: Log activity
-            await logActivity({
-                userId: patientId,
-                action: 'RECORD_UPLOADED',
-                recordId: recordId,
-                details: { recordType, fileSize: req.file.size },
-                ipAddress: req.ip
-            });
-
         } catch (error) {
             console.error('Error in uploadEHR:', error);
             return res.status(500).json({
@@ -127,16 +125,6 @@ class EHRController {
 
     /**
      * VIEW/DOWNLOAD EHR RECORD
-     * 
-     * Flow:
-     * 1. Read record from blockchain (checks authorization)
-     * 2. Download file from IPFS
-     * 3. Return file to user
-     * 
-     * Query params:
-     * - recordId: ID of the record
-     * - userId: User requesting access
-     * - orgName: User's organization (patient/hospital)
      */
     async viewEHR(req, res) {
         try {
@@ -150,41 +138,12 @@ class EHRController {
                 });
             }
 
-            // STEP 1: Connect to blockchain
             console.log(`User ${userId} requesting record ${recordId}`);
-            await fabricService.connectToNetwork(userId, orgName);
 
-            // STEP 2: Read record from blockchain (access control happens here)
-            console.log('Checking authorization on blockchain...');
-            const blockchainRecord = await fabricService.readEHR(recordId);
-            
-            console.log('✓ User is authorized to view this record');
-
-            // STEP 3: Download file from IPFS
-            console.log('Downloading file from IPFS...');
-            const fileBuffer = await ipfsService.downloadFile(
-                blockchainRecord.ipfsHash,
-                blockchainRecord.encryptionKey
-            );
-
-            // STEP 4: Get metadata from MongoDB
+            // Get metadata from PostgreSQL (enforce ACL validation)
             const metadata = await dbService.getRecordById(recordId);
 
-            // STEP 5: Disconnect
-            await fabricService.disconnect();
-
-            console.log('=== VIEW EHR COMPLETE ===\n');
-
-            // STEP 6: Send file
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Content-Disposition', `attachment; filename="${recordId}_${metadata.recordType}"`);
-            return res.send(fileBuffer);
-
-        } catch (error) {
-            console.error('Error in viewEHR:', error);
-            
-            // Check if it's an authorization error
-            if (error.message.includes('not authorized')) {
+            if (!metadata.authorizedUsers.includes(userId)) {
                 return res.status(403).json({
                     success: false,
                     error: 'Access Denied',
@@ -192,6 +151,23 @@ class EHRController {
                 });
             }
 
+            console.log('✓ User is authorized to view this record');
+
+            // Download file from Azure Blob Storage
+            console.log('Downloading file from Azure Blob Storage...');
+            const encryptedBuffer = await blobStorageService.downloadBlob(metadata.blobReference);
+
+            // Decrypt file
+            console.log('Decrypting file...');
+            const fileBuffer = decryptFile(encryptedBuffer, metadata.encryptionKey);
+
+            console.log('=== VIEW EHR COMPLETE ===\n');
+
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.setHeader('Content-Disposition', `attachment; filename="${recordId}_${metadata.recordType}"`);
+            return res.send(fileBuffer);
+        } catch (error) {
+            console.error('Error in viewEHR:', error);
             return res.status(500).json({
                 success: false,
                 error: 'Failed to retrieve EHR',
@@ -201,9 +177,7 @@ class EHRController {
     }
 
     /**
-     * GET RECORD DETAILS (metadata only, no file download)
-     * 
-     * Returns record information from both blockchain and MongoDB
+     * GET RECORD DETAILS (metadata only)
      */
     async getRecordDetails(req, res) {
         try {
@@ -215,23 +189,23 @@ class EHRController {
                 });
             }
 
-            // Connect and read from blockchain
-            await fabricService.connectToNetwork(userId, orgName);
-            const blockchainRecord = await fabricService.readEHR(recordId);
-            
-            // Get metadata from MongoDB
+            // Get metadata from PostgreSQL
             const metadata = await dbService.getRecordById(recordId);
 
-            await fabricService.disconnect();
+            if (!metadata.authorizedUsers.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Access Denied',
+                    details: 'You are not authorized to view this record'
+                });
+            }
 
             return res.json({
                 success: true,
                 data: {
-                    blockchain: blockchainRecord,
                     metadata: metadata
                 }
             });
-
         } catch (error) {
             console.error('Error in getRecordDetails:', error);
             return res.status(500).json({
@@ -244,8 +218,6 @@ class EHRController {
 
     /**
      * GRANT ACCESS TO DOCTOR
-     * 
-     * Patient shares their record with a doctor
      */
     async grantAccess(req, res) {
         try {
@@ -259,15 +231,18 @@ class EHRController {
                 });
             }
 
+            // Fetch record to verify patient owns it
+            const metadata = await dbService.getRecordById(recordId);
+            if (metadata.patientId !== patientId) {
+                return res.status(403).json({ success: false, error: 'Unauthorized: Only the record owner can grant access.' });
+            }
+
             console.log(`Patient ${patientId} granting access to ${doctorId} for record ${recordId}`);
 
-            // Connect as patient
-            await fabricService.connectToNetwork(patientId, 'patient');
+            const result = await dbService.updateMetadata(recordId, { $addToSet: { authorizedUsers: doctorId } });
 
-            // Grant access on blockchain
-            const result = await fabricService.grantAccess(recordId, doctorId);
-            await dbService.updateMetadata(recordId, { $addToSet: { authorizedUsers: doctorId } });
-            await fabricService.disconnect();
+            // Sync update to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncEHRRecord(result, result.blobReference).catch(e => console.error('[FHIR] DocumentReference update sync failed:', e.message));
 
             console.log('=== ACCESS GRANTED ===\n');
 
@@ -276,7 +251,6 @@ class EHRController {
                 message: `Access granted to ${doctorId}`,
                 data: result
             });
-
         } catch (error) {
             console.error('Error in grantAccess:', error);
             return res.status(500).json({
@@ -302,11 +276,18 @@ class EHRController {
                 });
             }
 
+            // Fetch record to verify patient owns it
+            const metadata = await dbService.getRecordById(recordId);
+            if (metadata.patientId !== patientId) {
+                return res.status(403).json({ success: false, error: 'Unauthorized: Only the record owner can revoke access.' });
+            }
+
             console.log(`Patient ${patientId} revoking access from ${doctorId} for record ${recordId}`);
 
-            await fabricService.connectToNetwork(patientId, 'patient');
-            const result = await fabricService.revokeAccess(recordId, doctorId);
-            await fabricService.disconnect();
+            const result = await dbService.updateMetadata(recordId, { $pull: { authorizedUsers: doctorId } });
+
+            // Sync update to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncEHRRecord(result, result.blobReference).catch(e => console.error('[FHIR] DocumentReference update sync failed:', e.message));
 
             console.log('=== ACCESS REVOKED ===\n');
 
@@ -315,7 +296,6 @@ class EHRController {
                 message: `Access revoked from ${doctorId}`,
                 data: result
             });
-
         } catch (error) {
             console.error('Error in revokeAccess:', error);
             return res.status(500).json({
@@ -339,15 +319,27 @@ class EHRController {
                 });
             }
 
-            await fabricService.connectToNetwork(userId, orgName);
-            const history = await fabricService.getAccessHistory(recordId);
-            await fabricService.disconnect();
+            // Get access logs from Database instead of blockchain gateway
+            const logs = await prisma.activityLog.findMany({
+                where: {
+                    details: {
+                        contains: recordId
+                    }
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
 
             return res.json({
                 success: true,
-                data: history
+                data: logs.map(l => ({
+                    action: l.action,
+                    userId: l.userId,
+                    timestamp: l.createdAt,
+                    details: l.details
+                }))
             });
-
         } catch (error) {
             console.error('Error in getAccessHistory:', error);
             return res.status(500).json({
@@ -371,12 +363,11 @@ class EHRController {
                 });
             }
 
-            // Get records from MongoDB (fast)
             let metadata;
             if (orgName === 'patient') {
                 metadata = await dbService.getRecordsByPatient(patientId);
             } else {
-                           metadata = await dbService.getRecordsAccessibleByUser(userId);
+                metadata = await dbService.getRecordsAccessibleByUser(userId);
             }
 
             return res.json({
@@ -384,7 +375,6 @@ class EHRController {
                 count: metadata.length,
                 data: metadata
             });
-
         } catch (error) {
             console.error('Error in listPatientRecords:', error);
             return res.status(500).json({

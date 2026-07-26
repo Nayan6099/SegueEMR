@@ -205,6 +205,67 @@ async function listStaff(orgName) {
   }
 }
 
+
+// Sync User to Dataverse systemusers
+async function syncUserToDataverse(user) {
+  const [firstname, ...lastnameParts] = (user.fullName || '').split(' ');
+  const payload = {
+    domainname: user.email,
+    firstname: firstname || user.username,
+    lastname: lastnameParts.join(' ') || '.',
+    title: user.role,
+    employeeid: user.id
+  };
+  try {
+    await syncEntity('systemusers', payload);
+    console.log(`[Dataverse] Successfully synced user ${user.id} to systemuser`);
+  } catch (error) {
+    console.warn(`[Dataverse] Failed to sync user ${user.id} to systemuser: ${error.message}`);
+  }
+}
+
+// Sync Patient to Dataverse contacts
+async function syncPatientToDataverse(patient) {
+  const [firstname, ...lastnameParts] = (patient.name || '').split(' ');
+  const payload = {
+    firstname: firstname || 'Patient',
+    lastname: lastnameParts.join(' ') || '.',
+    birthdate: patient.dateOfBirth ? new Date(patient.dateOfBirth).toISOString().split('T')[0] : null,
+    gendercode: patient.gender === 'Male' ? 1 : patient.gender === 'Female' ? 2 : 3,
+    telephone1: patient.phone || patient.contactInfo || null,
+    address1_composite: patient.address || null,
+    description: JSON.stringify({
+      emergencyContact: patient.emergencyContact,
+      bloodGroup: patient.bloodGroup
+    })
+  };
+  try {
+    await syncEntity('contacts', payload);
+    console.log(`[Dataverse] Successfully synced patient ${patient.id} to contact`);
+  } catch (error) {
+    console.warn(`[Dataverse] Failed to sync patient ${patient.id} to contact: ${error.message}`);
+  }
+}
+
+// Sync Doctor to Dataverse bookableresources
+async function syncDoctorToDataverse(doctor) {
+  const payload = {
+    name: doctor.name,
+    resourcetype: 1, // Generic / User
+    description: JSON.stringify({
+      specialization: doctor.specialization,
+      licenseNumber: doctor.licenseNumber,
+      consultationFee: doctor.consultationFee
+    })
+  };
+  try {
+    await syncEntity('bookableresources', payload);
+    console.log(`[Dataverse] Successfully synced doctor ${doctor.id} to bookableresource`);
+  } catch (error) {
+    console.warn(`[Dataverse] Failed to sync doctor ${doctor.id} to bookableresource: ${error.message}`);
+  }
+}
+
 module.exports = {
   getAccessToken,
   syncEntity,
@@ -213,5 +274,9 @@ module.exports = {
   findOrganization,
   createOrganization,
   updateOrganization,
-  listStaff
+  listStaff,
+  syncUserToDataverse,
+  syncPatientToDataverse,
+  syncDoctorToDataverse
 };
+

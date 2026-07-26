@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
+const fhirService = require('../services/fhirService');
+
 
 const genId = () => `APT-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -50,6 +52,18 @@ class AppointmentController {
 
             await logActivity('APPOINTMENT_CREATED', createdBy, { appointmentId: appointment.id, patientId, doctorId });
 
+            // Sync to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncAppointment(appointment)
+                .then(res => {
+                    if (res && res.id) {
+                        prisma.appointment.update({
+                            where: { id: appointment.id },
+                            data: { fhirResourceId: res.id }
+                        }).catch(e => console.error('[FHIR] Failed to save fhirResourceId in Appointment:', e.message));
+                    }
+                })
+                .catch(err => console.error('[FHIR] Appointment sync failed:', err.message));
+
             return res.status(201).json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
@@ -73,6 +87,9 @@ class AppointmentController {
 
             await logActivity('APPOINTMENT_UPDATED', updatedBy || 'unknown', { appointmentId, update });
 
+            // Sync to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncAppointment(appointment).catch(err => console.error('[FHIR] Appointment update sync failed:', err.message));
+
             return res.json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
@@ -90,6 +107,9 @@ class AppointmentController {
             });
 
             await logActivity('APPOINTMENT_CANCELLED', cancelledBy || 'unknown', { appointmentId });
+
+            // Sync to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncAppointment(appointment).catch(err => console.error('[FHIR] Appointment cancel sync failed:', err.message));
 
             return res.json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {

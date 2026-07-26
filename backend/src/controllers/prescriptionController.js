@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
+const fhirService = require('../services/fhirService');
+
 
 const genId = () => `RX-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
@@ -63,6 +65,18 @@ class PrescriptionController {
 
             await logActivity('PRESCRIPTION_CREATED', doctorId, { prescriptionId: prescription.id, patientId });
 
+            // Sync to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncPrescription(prescription)
+                .then(res => {
+                    if (res && res.id) {
+                        prisma.prescription.update({
+                            where: { id: prescription.id },
+                            data: { fhirResourceId: res.id }
+                        }).catch(e => console.error('[FHIR] Failed to save fhirResourceId in Prescription:', e.message));
+                    }
+                })
+                .catch(err => console.error('[FHIR] Prescription sync failed:', err.message));
+
             return res.status(201).json({ success: true, data: mapPrescription(prescription) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
@@ -93,6 +107,9 @@ class PrescriptionController {
             });
 
             await logActivity('PRESCRIPTION_DISPENSED', dispensedBy, { prescriptionId });
+
+            // Sync update to FHIR (fire-and-forget, non-blocking)
+            fhirService.syncPrescription(prescription).catch(err => console.error('[FHIR] Prescription update sync failed:', err.message));
 
             return res.json({ success: true, data: mapPrescription(prescription) });
         } catch (err) {

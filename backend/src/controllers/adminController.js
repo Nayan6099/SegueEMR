@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const dataverseService = require('../services/dataverseService');
+const fhirService = require('../services/fhirService');
 
 class AdminController {
     async getDashboardStats(req, res) {
@@ -261,11 +262,24 @@ class AdminController {
                 postgresStatus = 'error';
             }
 
+            let fhirStatus = 'not_configured';
+            if (process.env.FHIR_BASE_URL) {
+                try {
+                    // Try to get token as a test
+                    const token = await fhirService.getAccessToken();
+                    fhirStatus = token ? 'connected' : 'configured';
+                } catch (err) {
+                    fhirStatus = 'error';
+                }
+            }
+
+            const azureStatus = process.env.AZURE_STORAGE_CONNECTION_STRING ? 'connected' : 'not_configured';
+
             return res.json({
                 success: true,
                 health: {
-                    blockchain: 'running',
-                    ipfs: 'connected',
+                    fhir: fhirStatus,
+                    azureBlob: azureStatus,
                     postgres: postgresStatus,
                     api: 'running',
                     timestamp: new Date().toISOString()

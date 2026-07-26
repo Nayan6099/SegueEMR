@@ -1,5 +1,7 @@
 const db = require('../config/db');
 const { generateId } = require('../utils/idGenerator');
+const dataverseService = require('../services/dataverseService');
+
 
 class IntakeController {
   async createIntake(req, res) {
@@ -52,6 +54,13 @@ class IntakeController {
             'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
             [finalPatientId, name, dateOfBirth, gender, contactPhone]
           );
+          dataverseService.syncPatientToDataverse({
+            id: finalPatientId,
+            name: name,
+            dateOfBirth: new Date(dateOfBirth),
+            gender: gender,
+            phone: contactPhone
+          }).catch(e => console.error('Dataverse sync patient error:', e.message));
         }
       }
 
@@ -222,6 +231,14 @@ class IntakeController {
         'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
         [patientId, name.trim(), dateOfBirth || null, gender || null, contactPhone || contactEmail || null]
       );
+
+      dataverseService.syncPatientToDataverse({
+        id: patientId,
+        name: name.trim(),
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        gender: gender || 'Other',
+        phone: contactPhone || contactEmail || null
+      }).catch(e => console.error('Dataverse sync patient error in registerPatient:', e.message));
 
       return res.status(201).json({
         success: true,

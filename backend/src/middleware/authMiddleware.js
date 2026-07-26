@@ -1,15 +1,11 @@
-/**
- * Authentication Middleware
- * 
- * This is a simple auth middleware for demo purposes.
- * In production, you would use JWT tokens or OAuth.
- */
+const prisma = require('../config/prisma');
 
 /**
  * Validate user credentials
  * For demo: just check if userId and orgName are provided
+ * Auto-populates PostgreSQL User/Patient/Doctor mock records if missing.
  */
-const validateUser = (req, res, next) => {
+const validateUser = async (req, res, next) => {
     const { userId, orgName } = req.body.userId 
         ? req.body 
         : req.query;
@@ -29,6 +25,81 @@ const validateUser = (req, res, next) => {
             error: 'Invalid organization',
             message: 'orgName must be either "patient" or "hospital"'
         });
+    }
+
+    try {
+        const existing = await prisma.user.findUnique({ where: { id: userId } });
+        if (!existing) {
+            console.log(`[Auth] Auto-populating mock user for ${userId} (${orgName})`);
+            const targetRole = orgName === 'patient' 
+                ? 'patient' 
+                : (req.body.role || req.query.role || 'doctor');
+
+            await prisma.user.create({
+                data: {
+                    id: userId,
+                    username: userId,
+                    passwordHash: 'mock_password_hash',
+                    email: `${userId}@example.com`,
+                    role: targetRole,
+                    fullName: userId,
+                    status: 'active'
+                }
+            });
+
+            if (targetRole === 'patient') {
+                await prisma.patient.create({
+                    data: {
+                        id: userId,
+                        userId: userId,
+                        name: userId,
+                        dateOfBirth: new Date('1990-01-01'),
+                        gender: 'Other'
+                    }
+                });
+            } else if (targetRole === 'doctor') {
+                await prisma.doctor.create({
+                    data: {
+                        id: userId,
+                        userId: userId,
+                        name: userId,
+                        specialization: 'General Medicine',
+                        licenseNumber: `LIC-${userId}`
+                    }
+                });
+            }
+        } else {
+            const targetRole = existing.role;
+            if (targetRole === 'patient') {
+                const patExists = await prisma.patient.findUnique({ where: { id: userId } });
+                if (!patExists) {
+                    await prisma.patient.create({
+                        data: {
+                            id: userId,
+                            userId: userId,
+                            name: userId,
+                            dateOfBirth: new Date('1990-01-01'),
+                            gender: 'Other'
+                        }
+                    });
+                }
+            } else if (targetRole === 'doctor') {
+                const docExists = await prisma.doctor.findUnique({ where: { id: userId } });
+                if (!docExists) {
+                    await prisma.doctor.create({
+                        data: {
+                            id: userId,
+                            userId: userId,
+                            name: userId,
+                            specialization: 'General Medicine',
+                            licenseNumber: `LIC-${userId}`
+                        }
+                    });
+                }
+            }
+        }
+    } catch (dbErr) {
+        console.error('[Auth] Error checking or creating mock user:', dbErr.message);
     }
 
     // Attach user info to request

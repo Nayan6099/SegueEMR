@@ -7,13 +7,14 @@ const mapMetadata = (record) => {
         recordId: record.recordId,
         patientId: record.patientId,
         patientName: meta.patientName || '',
-        ipfsHash: meta.ipfsHash || '',
+        blobReference: meta.blobReference || '',
         recordType: meta.recordType || 'Report',
         description: meta.description || '',
         fileSize: Number(meta.fileSize || 0),
         uploadedBy: record.doctorId,
         encryptionKey: meta.encryptionKey || '',
         authorizedUsers: meta.authorizedUsers || [record.patientId],
+        fhirResourceId: record.fhirResourceId,
         uploadDate: record.createdAt,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt
@@ -26,7 +27,6 @@ class DatabaseService {
     }
 
     async connect() {
-        // No-op for Prisma client
         return true;
     }
 
@@ -35,7 +35,7 @@ class DatabaseService {
             const authorizedUsers = metadata.authorizedUsers || [metadata.patientId];
             const metaPayload = {
                 patientName: metadata.patientName,
-                ipfsHash: metadata.ipfsHash,
+                blobReference: metadata.blobReference,
                 recordType: metadata.recordType,
                 description: metadata.description || '',
                 fileSize: metadata.fileSize,
@@ -118,6 +118,10 @@ class DatabaseService {
                     currentUsers.push(userToAdd);
                 }
                 updatedMeta.authorizedUsers = currentUsers;
+            } else if (updates.$pull && updates.$pull.authorizedUsers) {
+                const userToRemove = updates.$pull.authorizedUsers;
+                const currentUsers = currentMeta.authorizedUsers || [record.patientId];
+                updatedMeta.authorizedUsers = currentUsers.filter(u => u !== userToRemove);
             } else {
                 updatedMeta = { ...currentMeta, ...updates };
             }

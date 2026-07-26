@@ -29,21 +29,60 @@ router.post('/register-user', async (req, res) => {
       return res.status(400).json({ error: 'userId, name, orgName, and role are required' });
     }
 
-    const existing = await dataverseService.findUser(userId);
-    if (existing) {
+    const existingLocal = await prisma.user.findUnique({ where: { id: userId } });
+    if (existingLocal) {
       return res.status(409).json({ error: 'User already exists' });
     }
 
-    const newUser = await dataverseService.createUser({
-      userId,
-      name,
-      orgName,
-      role,
-      status: 'active',
-      metadata: metadata || {}
+    const user = await prisma.user.create({
+      data: {
+        id: userId,
+        username: userId,
+        passwordHash: 'mock_password_hash',
+        email: `${userId}@example.com`,
+        role: role,
+        fullName: name,
+        status: 'active'
+      }
     });
 
-    res.status(201).json({ message: 'User registered successfully', user: newUser });
+    let patient = null;
+    let doctor = null;
+
+    if (role === 'patient') {
+      patient = await prisma.patient.create({
+        data: {
+          id: userId,
+          userId: userId,
+          name: name,
+          dateOfBirth: new Date(metadata?.dateOfBirth || '1990-01-01'),
+          gender: metadata?.gender || 'Other',
+          phone: metadata?.phone || null,
+          address: metadata?.address || null
+        }
+      });
+    } else if (role === 'doctor') {
+      doctor = await prisma.doctor.create({
+        data: {
+          id: userId,
+          userId: userId,
+          name: name,
+          specialization: metadata?.specialization || 'General Medicine',
+          licenseNumber: metadata?.licenseNumber || `LIC-${userId}`
+        }
+      });
+    }
+
+    // Sync to Dataverse asynchronously (fire-and-forget)
+    dataverseService.syncUserToDataverse(user).catch(e => console.error('Dataverse user sync failed:', e.message));
+    if (patient) {
+      dataverseService.syncPatientToDataverse(patient).catch(e => console.error('Dataverse patient sync failed:', e.message));
+    }
+    if (doctor) {
+      dataverseService.syncDoctorToDataverse(doctor).catch(e => console.error('Dataverse doctor sync failed:', e.message));
+    }
+
+    res.status(201).json({ message: 'User registered successfully', user: { userId, name, role } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
