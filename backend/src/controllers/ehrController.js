@@ -9,7 +9,7 @@ const fabricService = require('../services/fabricService');
 const ipfsService = require('../services/ipfsService');
 const dbService = require('../services/dbService');
 const crypto = require('crypto');
-const ActivityLog = require('../models/ActivityLog');
+const { logActivity } = require('../services/activityLogger');
 
 class EHRController {
 
@@ -107,8 +107,8 @@ class EHRController {
             });
 
             // Step 10: Log activity
-            await ActivityLog.logActivity({
-                userId: formData.patientId,
+            await logActivity({
+                userId: patientId,
                 action: 'RECORD_UPLOADED',
                 recordId: recordId,
                 details: { recordType, fileSize: req.file.size },

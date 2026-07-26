@@ -1,64 +1,92 @@
-/**
- * Analytics Controller
- *
- * Features:
- * - Healthcare Management Teams: organization-wide operational metrics
- *   spanning appointments, prescriptions, lab orders, billing, and users.
- */
-
-const Appointment = require('../models/Appointment');
-const Prescription = require('../models/Prescription');
-const LabOrder = require('../models/LabOrder');
-const Invoice = require('../models/Invoice');
-const User = require('../models/User');
-const ActivityLog = require('../models/ActivityLog');
+const prisma = require('../config/prisma');
+const dataverseService = require('../services/dataverseService');
 
 class AnalyticsController {
     async getOverview(req, res) {
         try {
+            const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+            const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+            const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+            // Fetch Dataverse staff
+            let staffList = [];
+            try {
+                staffList = await dataverseService.listStaff('hospital');
+            } catch (err) {
+                console.warn('Dataverse offline during analytics overview.');
+            }
+
+            const staffByRoleMap = {};
+            staffList.forEach(s => {
+                staffByRoleMap[s.role] = (staffByRoleMap[s.role] || 0) + 1;
+            });
+            const staffByRole = Object.entries(staffByRoleMap).map(([_id, count]) => ({ _id, count }));
+
             const [
                 appointmentsToday,
-                appointmentsByStatus,
+                appointments,
                 pendingPrescriptions,
                 dispensedPrescriptions,
-                labOrdersByStatus,
-                revenueAgg,
+                labOrdersGroup,
+                revenueCollectedSum,
                 unpaidInvoices,
-                staffByRole,
                 recentActivityCount
             ] = await Promise.all([
-                Appointment.countDocuments({
-                    scheduledAt: {
-                        $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-                        $lte: new Date(new Date().setHours(23, 59, 59, 999))
-                    }
+                prisma.appointment.count({
+                    where: { scheduledTime: { gte: startOfDay, lte: endOfDay } }
                 }),
-                Appointment.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-                Prescription.countDocuments({ status: 'pending' }),
-                Prescription.countDocuments({ status: 'dispensed' }),
-                LabOrder.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-                Invoice.aggregate([
-                    { $match: { status: 'paid' } },
-                    { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-                ]),
-                Invoice.countDocuments({ status: 'unpaid' }),
-                User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]),
-                ActivityLog.countDocuments({
-                    timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+                prisma.appointment.findMany({}),
+                prisma.prescription.count({ where: { status: 'pending' } }),
+                prisma.prescription.count({ where: { status: 'dispensed' } }),
+                prisma.labOrder.groupBy({
+                    by: ['status'],
+                    _count: { _all: true }
+                }),
+                prisma.invoice.aggregate({
+                    where: { status: 'paid' },
+                    _sum: { totalAmount: true }
+                }),
+                prisma.invoice.count({ where: { status: 'unpaid' } }),
+                prisma.activityLog.count({
+                    where: { createdAt: { gte: last24Hours } }
                 })
             ]);
+
+            const appointmentsByStatusMap = {};
+            const doctorPerformanceMap = {};
+
+            appointments.forEach(apt => {
+                appointmentsByStatusMap[apt.status] = (appointmentsByStatusMap[apt.status] || 0) + 1;
+                
+                if (!doctorPerformanceMap[apt.doctorId]) {
+                    doctorPerformanceMap[apt.doctorId] = {
+                        _id: apt.doctorId,
+                        doctorName: apt.doctorName || apt.doctorId,
+                        patientVolume: 0
+                    };
+                }
+                doctorPerformanceMap[apt.doctorId].patientVolume += 1;
+            });
+
+            const appointmentsByStatus = Object.entries(appointmentsByStatusMap).map(([_id, count]) => ({ _id, count }));
+            const doctorPerformance = Object.values(doctorPerformanceMap);
 
             return res.json({
                 success: true,
                 data: {
+                    totalRecords: await prisma.eHRMetadata.count(),
+                    totalAppointments: appointments.length,
+                    totalLabOrders: await prisma.labOrder.count(),
+                    totalRevenue: revenueCollectedSum._sum.totalAmount || 0,
                     appointmentsToday,
                     appointmentsByStatus,
                     prescriptions: { pending: pendingPrescriptions, dispensed: dispensedPrescriptions },
-                    labOrdersByStatus,
-                    revenueCollected: revenueAgg.length ? revenueAgg[0].total : 0,
+                    labOrdersByStatus: labOrdersGroup.map(g => ({ _id: g.status, count: g._count._all })),
+                    revenueCollected: revenueCollectedSum._sum.totalAmount || 0,
                     unpaidInvoices,
                     staffByRole,
-                    recentActivityCount
+                    recentActivityCount,
+                    doctorPerformance
                 }
             });
         } catch (err) {

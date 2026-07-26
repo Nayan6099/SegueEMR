@@ -26,4 +26,11 @@ router.delete('/records/:recordId', adminController.deleteRecord);
 // Permission Management
 router.post('/permissions/revoke', adminController.forceRevokeAccess);
 
+// Bulk Export CSV
+router.get('/export/:resource', adminController.exportCSV);
+
+// Settings
+router.get('/settings', adminController.getSettings);
+router.post('/settings', adminController.updateSetting);
+
 module.exports = router;

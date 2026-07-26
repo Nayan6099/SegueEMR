@@ -47,3 +47,6 @@ temp/
 # IPFS data
 .ipfs/
 ipfs/data/
+
+# Scratch and temp test files
+backend/scratch/

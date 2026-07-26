@@ -15,6 +15,10 @@ router.post('/', appointmentController.createAppointment);
 // @desc    List appointments, filter by doctorId/patientId/status/from/to
 router.get('/', appointmentController.listAppointments);
 
+// @route   GET /api/appointments/available-slots
+// @desc    Get available slots for a doctor on a specific date
+router.get('/available-slots', appointmentController.getAvailableSlots);
+
 // @route   PUT /api/appointments/:appointmentId
 // @desc    Reschedule / update status / add notes
 router.put('/:appointmentId', appointmentController.updateAppointment);

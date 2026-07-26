@@ -27,7 +27,7 @@ import {
   Pill,
   Activity as LogActivityIcon
 } from 'lucide-react';
-import api, { User, EMRRecord, Appointment, Prescription, LabOrder, Invoice } from '../services/api';
+import api, { User, EMRRecord, Appointment, Prescription, LabOrder, Invoice, Vitals, Medicine, Setting, Organization, PatientRecord } from '../services/api';
 
 const ROLE_LABELS: Record<string, string> = {
   patient: 'Patient',
@@ -40,6 +40,224 @@ const ROLE_LABELS: Record<string, string> = {
   management: 'Healthcare Management',
   admin: 'Admin'
 };
+
+interface PatientPickerValue {
+  isNew: boolean;
+  patientId: string;
+  patientName: string;
+  dateOfBirth?: string;
+  gender?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+}
+
+interface PatientPickerProps {
+  value: PatientPickerValue;
+  onChange: (val: PatientPickerValue) => void;
+  showDetailsFields?: boolean;
+  existingOnly?: boolean;
+}
+
+function PatientPicker({ value, onChange, showDetailsFields = false, existingOnly = false }: PatientPickerProps) {
+  const [activeTab, setActiveTab] = useState<'existing' | 'new'>(existingOnly ? 'existing' : (value.isNew ? 'new' : 'existing'));
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<PatientRecord[]>([]);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+
+  useEffect(() => {
+    if (existingOnly && activeTab !== 'existing') {
+      setActiveTab('existing');
+    }
+  }, [existingOnly, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'existing' || searchQuery.trim().length < 1) {
+      setSearchResults([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      setLoadingSearch(true);
+      try {
+        const res = await api.searchPatients(searchQuery);
+        if (res.success) {
+          setSearchResults(res.data);
+        }
+      } catch (err) {
+        console.error('Search failed', err);
+      } finally {
+        setLoadingSearch(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, activeTab]);
+
+  const handleTabChange = (tab: 'existing' | 'new') => {
+    setActiveTab(tab);
+    onChange({
+      isNew: tab === 'new',
+      patientId: '',
+      patientName: '',
+      dateOfBirth: '',
+      gender: 'Male',
+      contactPhone: '',
+      contactEmail: ''
+    });
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const handleSelectExisting = (patient: PatientRecord) => {
+    onChange({
+      isNew: false,
+      patientId: patient.id,
+      patientName: patient.name
+    });
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  return (
+    <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      {!existingOnly && (
+        <div className="flex gap-2 border-b border-slate-200 pb-2">
+          <button
+            type="button"
+            onClick={() => handleTabChange('existing')}
+            className={`flex-1 py-1 text-xs font-semibold rounded ${activeTab === 'existing' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200 bg-white border border-slate-200'}`}
+          >
+            Existing Patient
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTabChange('new')}
+            className={`flex-1 py-1 text-xs font-semibold rounded ${activeTab === 'new' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200 bg-white border border-slate-200'}`}
+          >
+            New Patient
+          </button>
+        </div>
+      )}
+
+      {existingOnly || activeTab === 'existing' ? (
+        <div className="space-y-2">
+          {value.patientId ? (
+            <div className="flex justify-between items-center p-2 bg-indigo-50 border border-indigo-100 rounded">
+              <div>
+                <span className="block text-xs font-semibold text-indigo-900">{value.patientName}</span>
+                <span className="block text-[10px] text-indigo-700 font-mono select-all">ID: {value.patientId}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onChange({ isNew: false, patientId: '', patientName: '' })}
+                className="text-xs text-rose-600 hover:underline font-semibold"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <label className="block text-xs font-semibold text-slate-600">Search Patient Name</label>
+              <div className="flex items-center mt-1 relative">
+                <input
+                  type="text"
+                  placeholder="Type to search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white text-slate-900 pr-8"
+                />
+                {loadingSearch && (
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400">...</span>
+                )}
+              </div>
+              {searchResults.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg max-h-40 overflow-y-auto">
+                  {searchResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectExisting(p)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 border-b border-slate-100 last:border-0 block"
+                    >
+                      <span className="font-semibold block text-slate-800">{p.name}</span>
+                      <span className="text-[10px] block text-slate-500 font-mono">{p.id}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchQuery && !loadingSearch && searchResults.length === 0 && (
+                <p className="text-[10px] text-slate-500 mt-1 italic">No matches found.</p>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600">Full Name</label>
+            <input
+              type="text"
+              required
+              value={value.patientName}
+              onChange={(e) => onChange({ ...value, patientName: e.target.value })}
+              className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white text-slate-900"
+            />
+          </div>
+          {showDetailsFields && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Date of Birth</label>
+                  <input
+                    type="date"
+                    required
+                    value={value.dateOfBirth || ''}
+                    onChange={(e) => onChange({ ...value, dateOfBirth: e.target.value })}
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Gender</label>
+                  <select
+                    value={value.gender || 'Male'}
+                    onChange={(e) => onChange({ ...value, gender: e.target.value })}
+                    className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-900 font-medium"
+                  >
+                    <option>Male</option>
+                    <option>Female</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Phone</label>
+                  <input
+                    type="text"
+                    value={value.contactPhone || ''}
+                    onChange={(e) => onChange({ ...value, contactPhone: e.target.value })}
+                    className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Email</label>
+                  <input
+                    type="email"
+                    value={value.contactEmail || ''}
+                    onChange={(e) => onChange({ ...value, contactEmail: e.target.value })}
+                    className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white text-slate-900"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="text-[10px] text-slate-500 font-semibold italic bg-amber-50 border border-amber-100 p-1.5 rounded">
+            ID will be automatically generated by the server on submission.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -72,10 +290,72 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedCCDAFile, setSelectedCCDAFile] = useState<File | null>(null);
   const [grantAccessForm, setGrantAccessForm] = useState({ recordId: '', doctorId: '' });
-  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '' });
+  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '', status: 'scheduled' });
   const [rxForm, setRxForm] = useState({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '' });
+  const [vitalsHistory, setVitalsHistory] = useState<Vitals[]>([]);
+  const [vitalsForm, setVitalsForm] = useState({ temperature: '', bloodPressure: '', pulse: '', spo2: '' });
+  const [selectedAptForVitals, setSelectedAptForVitals] = useState<any | null>(null);
+
+  const [doctorSearchQuery, setDoctorSearchQuery] = useState('');
+  const [selectedAptForNote, setSelectedAptForNote] = useState<any | null>(null);
+  const [soapNote, setSoapNote] = useState({ subjective: '', objective: '', assessment: '', plan: '' });
+  const [patientVitals, setPatientVitals] = useState<Vitals[]>([]);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [medForm, setMedForm] = useState({ name: '', stock: '', reorderThreshold: '10', expiryDate: '' });
+  const [systemSettings, setSystemSettings] = useState<Setting[]>([]);
+  const [newSettingForm, setNewSettingForm] = useState({ key: '', value: '' });
+  const [selectedLabForResults, setSelectedLabForResults] = useState<any | null>(null);
+  const [labResultsForm, setLabResultsForm] = useState({ resultSummary: '', cholesterol: '', hemoglobin: '', glucose: '' });
+  const [orgDetails, setOrgDetails] = useState<any | null>(null);
+  const [orgStaff, setOrgStaff] = useState<User[]>([]);
+  const [newDepartmentName, setNewDepartmentName] = useState('');
+  const [editingRolePermissions, setEditingRolePermissions] = useState({ role: 'doctor', permissions: '' });
   const [labForm, setLabForm] = useState({ patientId: '', patientName: '', testName: '', notes: '' });
   const [invoiceForm, setInvoiceForm] = useState({ patientId: '', patientName: '', amount: '' });
+
+  // Patient Picker State hooks
+  const [appointmentPicker, setAppointmentPicker] = useState<PatientPickerValue>({
+    isNew: false,
+    patientId: '',
+    patientName: '',
+    dateOfBirth: '',
+    gender: 'Male',
+    contactPhone: '',
+    contactEmail: ''
+  });
+
+  const [invoicePicker, setInvoicePicker] = useState<PatientPickerValue>({
+    isNew: false,
+    patientId: '',
+    patientName: '',
+    dateOfBirth: '',
+    gender: 'Male',
+    contactPhone: '',
+    contactEmail: ''
+  });
+
+  const [rxPicker, setRxPicker] = useState<PatientPickerValue>({
+    isNew: false,
+    patientId: '',
+    patientName: '',
+    dateOfBirth: '',
+    gender: 'Male',
+    contactPhone: '',
+    contactEmail: ''
+  });
+
+  const [labPicker, setLabPicker] = useState<PatientPickerValue>({
+    isNew: false,
+    patientId: '',
+    patientName: '',
+    dateOfBirth: '',
+    gender: 'Male',
+    contactPhone: '',
+    contactEmail: ''
+  });
+
+  const [isRxPrefilled, setIsRxPrefilled] = useState(false);
+  const [isLabPrefilled, setIsLabPrefilled] = useState(false);
   
   // Intake Form
   const [intakeForm, setIntakeForm] = useState({
@@ -315,7 +595,31 @@ export default function Home() {
   const handleCreateIntake = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.createIntake(intakeForm);
+      let finalPatientId = intakeForm.patientId;
+      let finalPatientName = intakeForm.name;
+
+      if (!finalPatientId) {
+        if (!finalPatientName.trim()) {
+          showToast('Patient Name is required for check-in', true);
+          return;
+        }
+        const regRes = await api.registerPatient({
+          name: finalPatientName,
+          dateOfBirth: intakeForm.dateOfBirth || undefined,
+          gender: intakeForm.gender || undefined,
+          contactPhone: intakeForm.contactPhone || undefined,
+          contactEmail: intakeForm.contactEmail || undefined
+        });
+        finalPatientId = regRes.data.id;
+        finalPatientName = regRes.data.name;
+      }
+
+      const { name: _, ...intakePayload } = intakeForm;
+      await api.createIntake({
+        ...intakePayload,
+        patientId: finalPatientId,
+        patientName: finalPatientName
+      });
       showToast('Patient Intake complete and checked in successfully.');
       setIntakeForm({
         patientId: '',
@@ -470,16 +774,54 @@ export default function Home() {
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.createAppointment(appointmentForm);
+      let finalPatientId = appointmentPicker.patientId;
+      let finalPatientName = appointmentPicker.patientName;
+
+      if (appointmentPicker.isNew) {
+        if (!finalPatientName.trim()) {
+          showToast('Patient Name is required for booking', true);
+          return;
+        }
+        const regRes = await api.registerPatient({
+          name: finalPatientName,
+          dateOfBirth: appointmentPicker.dateOfBirth || undefined,
+          gender: appointmentPicker.gender || undefined,
+          contactPhone: appointmentPicker.contactPhone || undefined,
+          contactEmail: appointmentPicker.contactEmail || undefined
+        });
+        finalPatientId = regRes.data.id;
+        finalPatientName = regRes.data.name;
+      } else {
+        if (!finalPatientId) {
+          showToast('Please select an existing patient or register a new one', true);
+          return;
+        }
+      }
+
+      await api.createAppointment({
+        ...appointmentForm,
+        patientId: finalPatientId,
+        patientName: finalPatientName,
+        status: appointmentForm.status as any
+      });
       showToast('Appointment successfully scheduled');
-      setAppointmentForm({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '' });
+      setAppointmentForm({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '', status: 'scheduled' });
+      setAppointmentPicker({
+        isNew: false,
+        patientId: '',
+        patientName: '',
+        dateOfBirth: '',
+        gender: 'Male',
+        contactPhone: '',
+        contactEmail: ''
+      });
       fetchData();
     } catch (error: any) {
       showToast(error.message || 'Action failed', true);
     }
   };
 
-  const handleUpdateAptStatus = async (id: string, status: 'check-in' | 'completed' | 'cancelled') => {
+  const handleUpdateAptStatus = async (id: string, status: 'check-in' | 'completed' | 'cancelled' | 'scheduled' | 'waitlisted') => {
     try {
       await api.updateAppointment(id, { status });
       showToast(`Appointment status updated to ${status}`);
@@ -493,9 +835,33 @@ export default function Home() {
     e.preventDefault();
     if (!currentUser) return;
     try {
+      let finalPatientId = rxPicker.patientId;
+      let finalPatientName = rxPicker.patientName;
+
+      if (rxPicker.isNew) {
+        if (!finalPatientName.trim()) {
+          showToast('Patient Name is required for prescription', true);
+          return;
+        }
+        const regRes = await api.registerPatient({
+          name: finalPatientName,
+          dateOfBirth: rxPicker.dateOfBirth || undefined,
+          gender: rxPicker.gender || undefined,
+          contactPhone: rxPicker.contactPhone || undefined,
+          contactEmail: rxPicker.contactEmail || undefined
+        });
+        finalPatientId = regRes.data.id;
+        finalPatientName = regRes.data.name;
+      } else {
+        if (!finalPatientId) {
+          showToast('Please select an existing patient or register a new one', true);
+          return;
+        }
+      }
+
       await api.createPrescription({
-        patientId: rxForm.patientId,
-        patientName: rxForm.patientName,
+        patientId: finalPatientId,
+        patientName: finalPatientName,
         doctorId: currentUser.userId,
         medicationDetails: `${rxForm.medName} | ${rxForm.dosage} | ${rxForm.frequency} | ${rxForm.duration}`,
         dosage: rxForm.dosage,
@@ -503,6 +869,16 @@ export default function Home() {
       });
       showToast('Prescription successfully created');
       setRxForm({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '' });
+      setRxPicker({
+        isNew: false,
+        patientId: '',
+        patientName: '',
+        dateOfBirth: '',
+        gender: 'Male',
+        contactPhone: '',
+        contactEmail: ''
+      });
+      setIsRxPrefilled(false);
       fetchData();
     } catch (error: any) {
       showToast(error.message || 'Action failed', true);
@@ -520,19 +896,238 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'doctor') {
+      const delayDebounce = setTimeout(() => {
+        api.listAppointments({ doctorId: currentUser.userId, search: doctorSearchQuery })
+          .then(res => {
+            if (res.success && res.data) {
+              setAppointments(res.data);
+            }
+          })
+          .catch(err => console.error(err));
+      }, 300);
+      return () => clearTimeout(delayDebounce);
+    }
+  }, [doctorSearchQuery, currentUser]);
+
+  useEffect(() => {
+    if (selectedAptForNote) {
+      api.getClinicalNote(selectedAptForNote.id)
+        .then(res => {
+          if (res.success && res.data) {
+            setSoapNote({
+              subjective: res.data.soapSubjective || '',
+              objective: res.data.soapObjective || '',
+              assessment: res.data.soapAssessment || '',
+              plan: res.data.soapPlan || ''
+            });
+          } else {
+            setSoapNote({ subjective: '', objective: '', assessment: '', plan: '' });
+          }
+        })
+        .catch(() => {
+          setSoapNote({ subjective: '', objective: '', assessment: '', plan: '' });
+        });
+
+      api.listVitals(selectedAptForNote.patientId)
+        .then(res => {
+          if (res.success && res.data) {
+            setPatientVitals(res.data);
+          } else {
+            setPatientVitals([]);
+          }
+        })
+        .catch(() => setPatientVitals([]));
+    }
+  }, [selectedAptForNote]);
+
+  const handleSaveVitals = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !selectedAptForVitals) return;
+    try {
+      await api.addVitals({
+        patientId: selectedAptForVitals.patientId,
+        appointmentId: selectedAptForVitals.id,
+        temperature: Number(vitalsForm.temperature) || undefined,
+        bloodPressure: vitalsForm.bloodPressure,
+        pulse: Number(vitalsForm.pulse) || undefined,
+        spo2: Number(vitalsForm.spo2) || undefined,
+        recordedBy: currentUser.userId
+      });
+      showToast('Vitals successfully recorded');
+      setVitalsForm({ temperature: '', bloodPressure: '', pulse: '', spo2: '' });
+      const res = await api.listVitals(selectedAptForVitals.patientId);
+      if (res.success && res.data) {
+        setVitalsHistory(res.data);
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleSaveClinicalNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !selectedAptForNote) return;
+    try {
+      await api.createClinicalNote({
+        appointmentId: selectedAptForNote.id,
+        patientId: selectedAptForNote.patientId,
+        doctorId: currentUser.userId,
+        soapSubjective: soapNote.subjective,
+        soapObjective: soapNote.objective,
+        soapAssessment: soapNote.assessment,
+        soapPlan: soapNote.plan,
+        recordedBy: currentUser.userId
+      });
+      showToast('Clinical SOAP Note successfully saved');
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleSaveMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    try {
+      await api.addOrUpdateMedicine({
+        ...medForm,
+        stock: Number(medForm.stock),
+        reorderThreshold: Number(medForm.reorderThreshold),
+        updatedBy: currentUser.userId
+      });
+      showToast('Medicine inventory updated');
+      setMedForm({ name: '', stock: '', reorderThreshold: '10', expiryDate: '' });
+      const res = await api.listMedicines();
+      if (res.success && res.data) {
+        setMedicines(res.data);
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleSaveSetting = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.updateSetting(newSettingForm.key, newSettingForm.value);
+      showToast('Setting updated successfully');
+      setNewSettingForm({ key: '', value: '' });
+      const res = await api.getSettings();
+      if (res.success && res.data) {
+        setSystemSettings(res.data);
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleAddDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !newDepartmentName) return;
+    try {
+      await api.addOrgDepartment(currentUser.orgName, newDepartmentName);
+      showToast('Department added successfully');
+      setNewDepartmentName('');
+      const orgRes = await api.getOrganizationDetails(currentUser.orgName);
+      if (orgRes.success && orgRes.data) {
+        setOrgDetails(orgRes.data.org);
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleUpdatePermissions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    try {
+      const permsArray = editingRolePermissions.permissions.split(',').map(p => p.trim()).filter(Boolean);
+      await api.updateAccessRules({
+        orgName: currentUser.orgName,
+        role: editingRolePermissions.role,
+        permissions: permsArray
+      });
+      showToast(`Permissions updated for ${editingRolePermissions.role}`);
+      setEditingRolePermissions({ role: 'doctor', permissions: '' });
+      const orgRes = await api.getOrganizationDetails(currentUser.orgName);
+      if (orgRes.success && orgRes.data) {
+        setOrgDetails(orgRes.data.org);
+      }
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
+  const handleSaveLabResults = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || !selectedLabForResults) return;
+    try {
+      await api.uploadLabResult(selectedLabForResults.id, {
+        resultSummary: labResultsForm.resultSummary,
+        resultFields: {
+          cholesterol: labResultsForm.cholesterol ? Number(labResultsForm.cholesterol) : undefined,
+          hemoglobin: labResultsForm.hemoglobin ? Number(labResultsForm.hemoglobin) : undefined,
+          glucose: labResultsForm.glucose ? Number(labResultsForm.glucose) : undefined
+        },
+        processedBy: currentUser.userId
+      });
+      showToast('Lab results successfully uploaded');
+      setSelectedLabForResults(null);
+      setLabResultsForm({ resultSummary: '', cholesterol: '', hemoglobin: '', glucose: '' });
+      fetchData();
+    } catch (error: any) {
+      showToast(error.message || 'Action failed', true);
+    }
+  };
+
   const handleCreateLabOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
     try {
+      let finalPatientId = labPicker.patientId;
+      let finalPatientName = labPicker.patientName;
+
+      if (labPicker.isNew) {
+        if (!finalPatientName.trim()) {
+          showToast('Patient Name is required for lab order', true);
+          return;
+        }
+        const regRes = await api.registerPatient({
+          name: finalPatientName,
+          dateOfBirth: labPicker.dateOfBirth || undefined,
+          gender: labPicker.gender || undefined,
+          contactPhone: labPicker.contactPhone || undefined,
+          contactEmail: labPicker.contactEmail || undefined
+        });
+        finalPatientId = regRes.data.id;
+        finalPatientName = regRes.data.name;
+      } else {
+        if (!finalPatientId) {
+          showToast('Please select an existing patient or register a new one', true);
+          return;
+        }
+      }
+
       await api.createLabOrder({
-        patientId: labForm.patientId,
-        patientName: labForm.patientName,
+        patientId: finalPatientId,
+        patientName: finalPatientName,
         doctorId: currentUser.userId,
         testName: labForm.testName,
         notes: labForm.notes
       });
       showToast('Laboratory order submitted');
       setLabForm({ patientId: '', patientName: '', testName: '', notes: '' });
+      setLabPicker({
+        isNew: false,
+        patientId: '',
+        patientName: '',
+        dateOfBirth: '',
+        gender: 'Male',
+        contactPhone: '',
+        contactEmail: ''
+      });
+      setIsLabPrefilled(false);
       fetchData();
     } catch (error: any) {
       showToast(error.message || 'Action failed', true);
@@ -554,14 +1149,47 @@ export default function Home() {
     e.preventDefault();
     if (!currentUser) return;
     try {
+      let finalPatientId = invoicePicker.patientId;
+      let finalPatientName = invoicePicker.patientName;
+
+      if (invoicePicker.isNew) {
+        if (!finalPatientName.trim()) {
+          showToast('Patient Name is required for invoice', true);
+          return;
+        }
+        const regRes = await api.registerPatient({
+          name: finalPatientName,
+          dateOfBirth: invoicePicker.dateOfBirth || undefined,
+          gender: invoicePicker.gender || undefined,
+          contactPhone: invoicePicker.contactPhone || undefined,
+          contactEmail: invoicePicker.contactEmail || undefined
+        });
+        finalPatientId = regRes.data.id;
+        finalPatientName = regRes.data.name;
+      } else {
+        if (!finalPatientId) {
+          showToast('Please select an existing patient or register a new one', true);
+          return;
+        }
+      }
+
       await api.createInvoice({
-        patientId: invoiceForm.patientId,
-        patientName: invoiceForm.patientName,
+        patientId: finalPatientId,
+        patientName: finalPatientName,
         amount: parseFloat(invoiceForm.amount),
         status: 'unpaid'
       });
       showToast('Invoice generated successfully');
       setInvoiceForm({ patientId: '', patientName: '', amount: '' });
+      setInvoicePicker({
+        isNew: false,
+        patientId: '',
+        patientName: '',
+        dateOfBirth: '',
+        gender: 'Male',
+        contactPhone: '',
+        contactEmail: ''
+      });
       fetchData();
     } catch (error: any) {
       showToast(error.message || 'Action failed', true);
@@ -1534,6 +2162,40 @@ export default function Home() {
                             <Clock className="h-3 w-3" /> {new Date(apt.scheduledTime).toLocaleString()}
                           </p>
                           <p className="text-sm text-slate-600 mt-3 italic">"{apt.notes || 'No doctor notes.'}"</p>
+                          {apt.status !== 'cancelled' && (
+                            <div className="mt-3 pt-2 border-t border-slate-100 flex gap-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRxPicker({
+                                    isNew: false,
+                                    patientId: apt.patientId,
+                                    patientName: apt.patientName || ''
+                                  });
+                                  setIsRxPrefilled(true);
+                                  setActiveTab('prescriptions');
+                                }}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-900 flex items-center gap-0.5"
+                              >
+                                <Pill className="h-3 w-3" /> Prescribe
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLabPicker({
+                                    isNew: false,
+                                    patientId: apt.patientId,
+                                    patientName: apt.patientName || ''
+                                  });
+                                  setIsLabPrefilled(true);
+                                  setActiveTab('labs');
+                                }}
+                                className="text-xs font-semibold text-teal-600 hover:text-teal-900 flex items-center gap-0.5"
+                              >
+                                <FlaskConical className="h-3 w-3" /> Order Lab
+                              </button>
+                            </div>
+                          )}
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                           <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${apt.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
@@ -1564,24 +2226,31 @@ export default function Home() {
                   <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-1"><Pill className="h-5 w-5 text-indigo-600" /> Create Prescription</h2>
                   <form onSubmit={handleCreatePrescription} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={rxForm.patientId}
-                        onChange={(e) => setRxForm({ ...rxForm, patientId: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={rxForm.patientName}
-                        onChange={(e) => setRxForm({ ...rxForm, patientName: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Select Patient</label>
+                      {rxPicker.patientId && isRxPrefilled ? (
+                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex justify-between items-center">
+                          <div>
+                            <span className="block text-xs font-semibold text-indigo-900">{rxPicker.patientName}</span>
+                            <span className="block text-[10px] text-indigo-700 font-mono">ID: {rxPicker.patientId}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRxPicker({ isNew: false, patientId: '', patientName: '' });
+                              setIsRxPrefilled(false);
+                            }}
+                            className="text-xs text-rose-600 hover:text-rose-900 font-semibold"
+                          >
+                            Clear Context
+                          </button>
+                        </div>
+                      ) : (
+                        <PatientPicker
+                          value={rxPicker}
+                          onChange={setRxPicker}
+                          existingOnly={true}
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600">Medication Name</label>
@@ -1665,24 +2334,31 @@ export default function Home() {
                   <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-1"><FlaskConical className="h-5 w-5 text-indigo-600" /> Order Lab Test</h2>
                   <form onSubmit={handleCreateLabOrder} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={labForm.patientId}
-                        onChange={(e) => setLabForm({ ...labForm, patientId: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={labForm.patientName}
-                        onChange={(e) => setLabForm({ ...labForm, patientName: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Select Patient</label>
+                      {labPicker.patientId && isLabPrefilled ? (
+                        <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg flex justify-between items-center">
+                          <div>
+                            <span className="block text-xs font-semibold text-teal-900">{labPicker.patientName}</span>
+                            <span className="block text-[10px] text-teal-700 font-mono">ID: {labPicker.patientId}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLabPicker({ isNew: false, patientId: '', patientName: '' });
+                              setIsLabPrefilled(false);
+                            }}
+                            className="text-xs text-rose-600 hover:text-rose-900 font-semibold"
+                          >
+                            Clear Context
+                          </button>
+                        </div>
+                      ) : (
+                        <PatientPicker
+                          value={labPicker}
+                          onChange={setLabPicker}
+                          existingOnly={true}
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600">Test Name</label>
@@ -1800,12 +2476,44 @@ export default function Home() {
                               </button>
                             )}
                             {selectedIntake.status === 'in_consultation' && (
-                              <button
-                                onClick={() => handleUpdateIntakeStatus(selectedIntake.id, 'completed')}
-                                className="bg-emerald-600 text-white rounded px-4 py-1.5 text-sm font-semibold hover:bg-emerald-700"
-                              >
-                                Complete Visit
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRxPicker({
+                                      isNew: false,
+                                      patientId: selectedIntake.patient_id,
+                                      patientName: selectedIntake.patient_name || ''
+                                    });
+                                    setIsRxPrefilled(true);
+                                    setActiveTab('prescriptions');
+                                  }}
+                                  className="bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-3 py-1.5 text-sm font-semibold hover:bg-indigo-100 flex items-center gap-1"
+                                >
+                                  <Pill className="h-4 w-4" /> Prescribe
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLabPicker({
+                                      isNew: false,
+                                      patientId: selectedIntake.patient_id,
+                                      patientName: selectedIntake.patient_name || ''
+                                    });
+                                    setIsLabPrefilled(true);
+                                    setActiveTab('labs');
+                                  }}
+                                  className="bg-teal-50 text-teal-700 border border-teal-200 rounded px-3 py-1.5 text-sm font-semibold hover:bg-teal-100 flex items-center gap-1"
+                                >
+                                  <FlaskConical className="h-4 w-4" /> Order Lab
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateIntakeStatus(selectedIntake.id, 'completed')}
+                                  className="bg-emerald-600 text-white rounded px-4 py-1.5 text-sm font-semibold hover:bg-emerald-700"
+                                >
+                                  Complete Visit
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -2008,23 +2716,10 @@ export default function Home() {
                   <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-1"><Calendar className="h-5 w-5 text-indigo-600" /> Book Appointment</h2>
                   <form onSubmit={handleCreateAppointment} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={appointmentForm.patientId}
-                        onChange={(e) => setAppointmentForm({ ...appointmentForm, patientId: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={appointmentForm.patientName}
-                        onChange={(e) => setAppointmentForm({ ...appointmentForm, patientName: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Select Patient</label>
+                      <PatientPicker
+                        value={appointmentPicker}
+                        onChange={setAppointmentPicker}
                       />
                     </div>
                     <div>
@@ -2131,23 +2826,10 @@ export default function Home() {
                   <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-1"><DollarSign className="h-5 w-5 text-indigo-600" /> Issue Invoice</h2>
                   <form onSubmit={handleCreateInvoice} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={invoiceForm.patientId}
-                        onChange={(e) => setInvoiceForm({ ...invoiceForm, patientId: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600">Patient Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={invoiceForm.patientName}
-                        onChange={(e) => setInvoiceForm({ ...invoiceForm, patientName: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Select Patient</label>
+                      <PatientPicker
+                        value={invoicePicker}
+                        onChange={setInvoicePicker}
                       />
                     </div>
                     <div>
@@ -2227,87 +2909,30 @@ export default function Home() {
                     </h2>
                     <form onSubmit={handleCreateIntake} className="space-y-3">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600">Patient ID (Optional)</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. PAT-123 (empty to auto-generate)"
-                          value={intakeForm.patientId}
-                          onChange={(e) => setIntakeForm({ ...intakeForm, patientId: e.target.value })}
-                          className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Select Patient</label>
+                        <PatientPicker
+                          value={{
+                            isNew: !intakeForm.patientId,
+                            patientId: intakeForm.patientId,
+                            patientName: intakeForm.name,
+                            dateOfBirth: intakeForm.dateOfBirth,
+                            gender: intakeForm.gender,
+                            contactPhone: intakeForm.contactPhone,
+                            contactEmail: intakeForm.contactEmail
+                          }}
+                          onChange={(pickerVal) => {
+                            setIntakeForm(prev => ({
+                              ...prev,
+                              patientId: pickerVal.patientId,
+                              name: pickerVal.patientName,
+                              dateOfBirth: pickerVal.dateOfBirth || prev.dateOfBirth,
+                              gender: pickerVal.gender || prev.gender,
+                              contactPhone: pickerVal.contactPhone || prev.contactPhone,
+                              contactEmail: pickerVal.contactEmail || prev.contactEmail
+                            }));
+                          }}
+                          showDetailsFields={true}
                         />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Full Name</label>
-                          <input
-                            type="text"
-                            required
-                            value={intakeForm.name}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, name: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Date of Birth</label>
-                          <input
-                            type="date"
-                            required
-                            value={intakeForm.dateOfBirth}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, dateOfBirth: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-900"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Gender</label>
-                          <select
-                            value={intakeForm.gender}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, gender: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white"
-                          >
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Marital Status</label>
-                          <select
-                            value={intakeForm.maritalStatus}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, maritalStatus: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white"
-                          >
-                            <option value="Single">Single</option>
-                            <option value="Married">Married</option>
-                            <option value="Divorced">Divorced</option>
-                            <option value="Widowed">Widowed</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Phone</label>
-                          <input
-                            type="text"
-                            required
-                            value={intakeForm.contactPhone}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, contactPhone: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Email</label>
-                          <input
-                            type="email"
-                            required
-                            value={intakeForm.contactEmail}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, contactEmail: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                          />
-                        </div>
                       </div>
 
                       <div>
@@ -2650,49 +3275,170 @@ export default function Home() {
               <p className="text-sm text-slate-500 mt-1">Review physician-issued prescriptions and log dispensed status updates.</p>
             </div>
 
-            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Patient Prescription Logs</h2>
-              {prescriptions.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No prescriptions available to dispense.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-200">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Patient Name</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Medication Details</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {prescriptions.map((rx) => (
-                        <tr key={rx.id}>
-                          <td className="px-4 py-3 text-sm text-slate-900 font-medium">{rx.patientName || rx.patientId}</td>
-                          <td className="px-4 py-3 text-sm text-slate-800">{rx.medicationDetails}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${rx.status === 'dispensed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
-                              }`}>
-                              {rx.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right text-sm">
-                            {rx.status === 'pending' && (
-                              <button
-                                onClick={() => handleDispensePrescription(rx.id)}
-                                className="bg-indigo-600 text-white rounded px-2.5 py-1 text-xs hover:bg-indigo-700"
-                              >
-                                Dispense Meds
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div className="flex gap-2 border-b border-slate-200 pb-2">
+              <button
+                onClick={() => setActiveTab('prescriptions')}
+                className={`px-4 py-2 text-sm font-semibold rounded ${activeTab === 'prescriptions' || activeTab === 'overview' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                Prescription Log
+              </button>
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`px-4 py-2 text-sm font-semibold rounded ${activeTab === 'inventory' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                Medicine Inventory
+              </button>
             </div>
+
+            {medicines.some(m => m.stock <= m.reorderThreshold || new Date(m.expiryDate) < new Date()) && (
+              <div className="bg-rose-50 border border-rose-200 p-4 rounded-lg text-rose-900 text-sm space-y-2">
+                <h3 className="font-bold flex items-center gap-1"><AlertCircle className="h-4 w-4" /> Pharmacy Inventory Alerts</h3>
+                <ul className="list-disc pl-5 space-y-1">
+                  {medicines.filter(m => m.stock <= m.reorderThreshold).map(m => (
+                    <li key={`low-${m.name}`}><span className="font-semibold">{m.name}</span> is low on stock ({m.stock} left, threshold is {m.reorderThreshold}).</li>
+                  ))}
+                  {medicines.filter(m => new Date(m.expiryDate) < new Date()).map(m => (
+                    <li key={`exp-${m.name}`}><span className="font-semibold">{m.name}</span> has expired on {new Date(m.expiryDate).toLocaleDateString()}!</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(activeTab === 'prescriptions' || activeTab === 'overview') && (
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm animate-fadeIn">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Patient Prescription Logs</h2>
+                {prescriptions.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-8">No prescriptions available to dispense.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Patient Name</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Medication Details</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {prescriptions.map((rx) => (
+                          <tr key={rx.id}>
+                            <td className="px-4 py-3 text-sm text-slate-900 font-medium">{rx.patientName || rx.patientId}</td>
+                            <td className="px-4 py-3 text-sm text-slate-800">{rx.medicationDetails}</td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${rx.status === 'dispensed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}>
+                                {rx.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm">
+                              {rx.status === 'pending' && (
+                                <button
+                                  onClick={() => handleDispensePrescription(rx.id)}
+                                  className="bg-indigo-600 text-white rounded px-2.5 py-1 text-xs hover:bg-indigo-700 cursor-pointer"
+                                >
+                                  Dispense Meds
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'inventory' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
+                <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Medicine Stock</h2>
+                  {medicines.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-8">No medications in stock.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase">Medicine Name</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase">Current Stock</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase">Reorder Threshold</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase">Expiry Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {medicines.map((med) => (
+                            <tr key={med.name}>
+                              <td className="px-4 py-3 text-sm text-slate-900 font-medium">{med.name}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span className={`font-semibold ${med.stock <= med.reorderThreshold ? 'text-rose-600' : 'text-slate-800'}`}>{med.stock}</span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-600">{med.reorderThreshold}</td>
+                              <td className="px-4 py-3 text-sm text-slate-500">{new Date(med.expiryDate).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                  <h2 className="text-lg font-semibold text-slate-900 border-b pb-2">Update Inventory</h2>
+                  <form onSubmit={handleSaveMedicine} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600">Medicine Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Paracetamol"
+                        value={medForm.name}
+                        onChange={(e) => setMedForm({ ...medForm, name: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600">Current Stock</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 100"
+                        value={medForm.stock}
+                        onChange={(e) => setMedForm({ ...medForm, stock: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600">Reorder Threshold</label>
+                      <input
+                        type="number"
+                        required
+                        value={medForm.reorderThreshold}
+                        onChange={(e) => setMedForm({ ...medForm, reorderThreshold: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600">Expiry Date</label>
+                      <input
+                        type="date"
+                        required
+                        value={medForm.expiryDate}
+                        onChange={(e) => setMedForm({ ...medForm, expiryDate: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-900 bg-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full bg-indigo-600 text-white rounded py-2 text-sm font-semibold hover:bg-indigo-700 cursor-pointer"
+                    >
+                      Update Stock
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2742,6 +3488,92 @@ export default function Home() {
                 </table>
               </div>
             </div>
+
+            {/* System Configuration & Settings */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
+                  ⚙️ System Settings
+                </h2>
+                
+                {systemSettings.length === 0 ? (
+                  <p className="text-xs text-slate-400">No active system configuration settings saved.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {systemSettings.map(s => (
+                      <div key={s.key} className="flex justify-between items-center text-sm border-b pb-2 last:border-0">
+                        <span className="font-mono text-slate-700">{s.key}</span>
+                        <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800 text-xs font-semibold">{JSON.stringify(s.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <form onSubmit={handleSaveSetting} className="space-y-3 pt-4 border-t border-slate-100">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Setting key (e.g. slot_duration)"
+                      required
+                      value={newSettingForm.key}
+                      onChange={(e) => setNewSettingForm({ ...newSettingForm, key: e.target.value })}
+                      className="rounded border border-slate-300 px-3 py-1.5 text-xs bg-white text-slate-950"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Setting value (e.g. 30)"
+                      required
+                      value={newSettingForm.value}
+                      onChange={(e) => setNewSettingForm({ ...newSettingForm, value: e.target.value })}
+                      className="rounded border border-slate-300 px-3 py-1.5 text-xs bg-white text-slate-950"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded py-2 cursor-pointer"
+                  >
+                    Save Config Setting
+                  </button>
+                </form>
+              </div>
+
+              {/* Bulk Exports */}
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
+                  📤 Data Export Utility
+                </h2>
+                <p className="text-xs text-slate-500">Export active database tables in bulk CSV format for compliance auditing.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  <a
+                    href={api.exportCSVUrl('activity-logs')}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center justify-center border border-slate-200 rounded p-4 text-center hover:border-indigo-500 hover:bg-indigo-50/10 cursor-pointer"
+                  >
+                    <span className="text-2xl">📋</span>
+                    <span className="text-xs font-semibold text-slate-800 mt-2">Activity Logs</span>
+                  </a>
+                  <a
+                    href={api.exportCSVUrl('invoices')}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center justify-center border border-slate-200 rounded p-4 text-center hover:border-indigo-500 hover:bg-indigo-50/10 cursor-pointer"
+                  >
+                    <span className="text-2xl">💵</span>
+                    <span className="text-xs font-semibold text-slate-800 mt-2">Invoices</span>
+                  </a>
+                  <a
+                    href={api.exportCSVUrl('records')}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-col items-center justify-center border border-slate-200 rounded p-4 text-center hover:border-indigo-500 hover:bg-indigo-50/10 cursor-pointer"
+                  >
+                    <span className="text-2xl">📂</span>
+                    <span className="text-xs font-semibold text-slate-800 mt-2">EHR Records</span>
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2786,10 +3618,153 @@ export default function Home() {
               </div>
             )}
 
-            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5"><TrendingUp className="h-5 w-5 text-indigo-600" /> Operational Metrics Overview</h2>
-              <div className="p-8 border border-dashed border-slate-200 rounded-lg text-center text-slate-500 text-sm">
-                Analytics trends and patient flow summaries are compiled dynamically from PostgreSQL transactional data logs.
+            {analytics && (
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5"><TrendingUp className="h-5 w-5 text-indigo-600" /> Physician Consultation Volumes</h2>
+                {(!analytics.doctorPerformance || analytics.doctorPerformance.length === 0) ? (
+                  <p className="text-sm text-slate-500 text-center py-8">No doctor consultation performance metrics recorded yet.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {analytics.doctorPerformance.map((doc: any) => (
+                      <div key={doc._id} className="border border-slate-100 rounded p-4 bg-slate-50/50 flex flex-col justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-900">Dr. {doc.doctorName || doc._id || 'General Practice'}</p>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {doc._id}</p>
+                        </div>
+                        <div className="mt-4 flex items-baseline justify-between border-t border-slate-100 pt-2">
+                          <span className="text-xs text-slate-500 font-semibold">Consultations Completed</span>
+                          <span className="text-lg font-bold text-indigo-600">{doc.patientVolume}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {currentUser.role === 'organization' && (
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+              <h1 className="text-2xl font-semibold text-slate-900">Organization Owner Desk</h1>
+              <p className="text-sm text-slate-500 mt-1">Configure department list, set staff access levels, and audit system users.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
+              {/* Left Column: Organization & Departments */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                  <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
+                    🏥 Departments List
+                  </h2>
+                  <div className="flex flex-wrap gap-2">
+                    {orgDetails?.departments?.map((dept: string) => (
+                      <span key={dept} className="bg-indigo-50 border border-indigo-100 text-indigo-800 text-sm px-3 py-1 rounded-full font-medium">
+                        {dept}
+                      </span>
+                    )) || <span className="text-slate-400">Loading departments...</span>}
+                  </div>
+
+                  <form onSubmit={handleAddDepartment} className="flex gap-2 pt-4 border-t border-slate-100">
+                    <input
+                      type="text"
+                      placeholder="New department name..."
+                      required
+                      value={newDepartmentName}
+                      onChange={(e) => setNewDepartmentName(e.target.value)}
+                      className="rounded border border-slate-300 px-3 py-1.5 text-sm bg-white text-slate-950 flex-grow"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded px-4 py-2 cursor-pointer"
+                    >
+                      Add Department
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
+                  <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
+                    👥 Registered Staff Members
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Staff ID</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Assigned Role</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Affiliation</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {orgStaff.map((usr) => (
+                          <tr key={usr.userId}>
+                            <td className="px-4 py-3 text-sm font-mono text-slate-950 font-semibold">{usr.userId}</td>
+                            <td className="px-4 py-3 text-sm text-slate-800">{ROLE_LABELS[usr.role] || usr.role}</td>
+                            <td className="px-4 py-3 text-sm text-slate-500">{usr.orgName.toUpperCase()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Access Level Rules & Policies */}
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
+                  🔐 Access Rules Config
+                </h2>
+                
+                <div className="space-y-4">
+                  {orgDetails?.accessRules?.map((rule: any) => (
+                    <div key={rule.role} className="text-xs space-y-1">
+                      <p className="font-semibold text-slate-800 capitalize">{ROLE_LABELS[rule.role] || rule.role}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {rule.permissions.map((p: string) => (
+                          <span key={p} className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded text-[10px]">
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <form onSubmit={handleUpdatePermissions} className="space-y-3 pt-4 border-t border-slate-100">
+                  <h3 className="text-sm font-semibold text-slate-800">Edit Permissions</h3>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Target Role</label>
+                    <select
+                      value={editingRolePermissions.role}
+                      onChange={(e) => setEditingRolePermissions({ ...editingRolePermissions, role: e.target.value })}
+                      className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs bg-white text-slate-900"
+                    >
+                      <option value="doctor">Doctor</option>
+                      <option value="nurse">Nurse</option>
+                      <option value="lab_technician">Laboratory Technician</option>
+                      <option value="pharmacist">Pharmacist</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Permissions (comma-separated list)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. read_ehr, log_vitals, check_in"
+                      required
+                      value={editingRolePermissions.permissions}
+                      onChange={(e) => setEditingRolePermissions({ ...editingRolePermissions, permissions: e.target.value })}
+                      className="w-full rounded border border-slate-300 px-3 py-1.5 text-xs bg-white text-slate-950"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded py-2 cursor-pointer"
+                  >
+                    Save Access Rules
+                  </button>
+                </form>
               </div>
             </div>
           </div>

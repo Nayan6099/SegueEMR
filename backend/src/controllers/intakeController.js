@@ -97,10 +97,12 @@ class IntakeController {
     try {
       const { doctorId } = req.query;
       let query = `
-        SELECT itk.*, p.name as patient_name, p.date_of_birth, p.gender, d.name as doctor_name
+        SELECT itk.*, up.full_name as patient_name, p.date_of_birth, p.gender, ud.full_name as doctor_name
         FROM patient_intakes itk
         JOIN patients p ON itk.patient_id = p.id
+        JOIN users up ON p.user_id = up.id
         LEFT JOIN doctors d ON itk.doctor_id = d.id
+        LEFT JOIN users ud ON d.user_id = ud.id
       `;
       const params = [];
       if (doctorId) {
@@ -177,6 +179,86 @@ class IntakeController {
       return res.status(500).json({ success: false, error: err.message });
     }
   }
+
+  /**
+   * POST /api/intake/patients/register
+   * Server-side patient registration — client NEVER supplies the patient ID.
+   * Body: { name, dateOfBirth?, gender?, contactPhone?, contactEmail? }
+   * Returns: { id, name }
+   */
+  async registerPatient(req, res) {
+    try {
+      const { name, dateOfBirth, gender, contactPhone, contactEmail } = req.body;
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Patient name is required.' });
+      }
+
+      // Check for existing patient by name + DOB to prevent duplicates
+      if (dateOfBirth) {
+        const dupCheck = await db.query(
+          'SELECT id FROM patients WHERE LOWER(name) = LOWER($1) AND date_of_birth = $2',
+          [name.trim(), dateOfBirth]
+        );
+        if (dupCheck.rows.length > 0) {
+          return res.json({
+            success: true,
+            existing: true,
+            data: { id: dupCheck.rows[0].id, name: name.trim() }
+          });
+        }
+      }
+
+      // Generate a guaranteed-unique patient ID
+      let patientId;
+      let collision = true;
+      while (collision) {
+        patientId = generateId('PAT');
+        const collisionCheck = await db.query('SELECT id FROM patients WHERE id = $1', [patientId]);
+        collision = collisionCheck.rows.length > 0;
+      }
+
+      await db.query(
+        'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
+        [patientId, name.trim(), dateOfBirth || null, gender || null, contactPhone || contactEmail || null]
+      );
+
+      return res.status(201).json({
+        success: true,
+        existing: false,
+        data: { id: patientId, name: name.trim() }
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * GET /api/intake/patients/search?q=partialName
+   * Case-insensitive partial name search for the patient picker autocomplete.
+   * Returns: [{ id, name }]
+   */
+  async searchPatients(req, res) {
+    try {
+      const { q } = req.query;
+      if (!q || q.trim().length < 1) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const result = await db.query(
+        `SELECT id, name FROM patients WHERE LOWER(name) ILIKE $1 ORDER BY name ASC LIMIT 20`,
+        [`%${q.trim().toLowerCase()}%`]
+      );
+
+      return res.json({
+        success: true,
+        data: result.rows.map(r => ({ id: r.id, name: r.name }))
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }
 
 module.exports = new IntakeController();
+

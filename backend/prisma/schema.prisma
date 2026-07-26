@@ -1,0 +1,145 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Setting {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
+}
+
+model Medicine {
+  id               String   @id @default(uuid())
+  name             String   @unique
+  stock            Int
+  reorderThreshold Int      @default(10)
+  expiryDate       DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model EHRMetadata {
+  id        String   @id @default(uuid())
+  recordId  String   @unique
+  patientId String
+  doctorId  String
+  orgName   String
+  metadata  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  role      String
+  action    String
+  details   String
+  createdAt DateTime @default(now())
+}
+
+model Appointment {
+  id            String   @id @default(uuid())
+  patientId     String
+  patientName   String?
+  doctorId      String
+  doctorName    String?
+  scheduledTime DateTime
+  status        String
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Prescription {
+  id          String       @id @default(uuid())
+  patientId   String
+  patientName String
+  doctorId    String
+  doctorName  String?
+  diagnosis   String?
+  status      String       @default("pending")
+  dispensedBy String?
+  dispensedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  medications Medication[]
+}
+
+model Medication {
+  id             String       @id @default(uuid())
+  prescriptionId String
+  name           String
+  dosage         String?
+  frequency      String?
+  duration       String?
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+}
+
+model LabOrder {
+  id            String    @id @default(uuid())
+  patientId     String
+  patientName   String
+  doctorId      String
+  testName      String
+  status        String    @default("pending")
+  notes         String?
+  resultSummary String?
+  critical      Boolean   @default(false)
+  resultFields  String?
+  processedBy   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Invoice {
+  id          String     @id @default(uuid())
+  patientId   String
+  patientName String
+  totalAmount Float      @default(0)
+  status      String     @default("unpaid")
+  createdBy   String
+  paidAt      DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       LineItem[]
+}
+
+model LineItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  description String
+  amount      Float
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model ClinicalNote {
+  id             String   @id @default(uuid())
+  appointmentId  String   @unique
+  patientId      String
+  doctorId       String
+  soapSubjective String?
+  soapObjective  String?
+  soapAssessment String?
+  soapPlan       String?
+  recordedBy     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Vitals {
+  id            String   @id @default(uuid())
+  patientId     String
+  appointmentId String
+  temperature   Float?
+  bloodPressure String?
+  pulse         Int?
+  spo2          Int?
+  recordedBy    String
+  createdAt     DateTime @default(now())
+}

@@ -1,13 +1,36 @@
 /**
  * Backend Server - Express.js API server
- * 
- * Connects frontend to:
- * - PostgreSQL relational database
- * - Azure Blob Storage
- * - Azure Dataverse
  */
 
 require('dotenv').config();
+
+// Fail fast if required environment variables are missing
+const requiredEnv = [
+  'DATABASE_URL',
+  'DATAVERSE_ENVIRONMENT_URL',
+  'DATAVERSE_CLIENT_ID',
+  'DATAVERSE_CLIENT_SECRET',
+  'DATAVERSE_TENANT_ID'
+];
+
+requiredEnv.forEach(envVar => {
+  if (!process.env[envVar]) {
+    console.error(`CRITICAL CONFIG ERROR: Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+});
+
+// Process-level crash handlers
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL: Uncaught Exception:', err);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -21,6 +44,10 @@ const billingRoutes = require('./src/routes/billingRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
 const patientPortalRoutes = require('./src/routes/patientPortalRoutes');
 const intakeRoutes = require('./src/routes/intakeRoutes');
+const vitalsRoutes = require('./src/routes/vitalsRoutes');
+const clinicalNoteRoutes = require('./src/routes/clinicalNoteRoutes');
+const medicineRoutes = require('./src/routes/medicineRoutes');
+const organizationRoutes = require('./src/routes/organizationRoutes');
 
 const app = express();
 const db = require('./src/config/db');
@@ -30,23 +57,47 @@ db.query('SELECT NOW()')
   .then(() => console.log('✓ Connected to PostgreSQL database successfully.'))
   .catch(err => console.error('✗ Failed to connect to PostgreSQL database:', err.message));
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());  // Allow cross-origin requests
-app.use(express.json());  // Parse JSON bodies
-app.use(express.urlencoded({ extended: true }));  // Parse URL-encoded bodies
-app.use(morgan('dev'));  // HTTP request logging
-app.use(activityLoggerMiddleware); // Log every write operation
+// CORS origin checking from env
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS 
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',') 
+  : ['http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
+app.use(activityLoggerMiddleware);
+
 app.use('/api/admin', adminRoutes);
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        message: 'SegueEMR Backend Server is running',
-        timestamp: new Date().toISOString()
-    });
+// Health check endpoint (load-balancer check)
+app.get('/health', async (req, res) => {
+    try {
+        await db.query('SELECT 1');
+        return res.json({
+            status: 'UP',
+            database: 'connected',
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        return res.status(503).json({
+            status: 'DOWN',
+            database: 'disconnected',
+            error: err.message,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 // API Routes
@@ -58,6 +109,10 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/patient', patientPortalRoutes);
 app.use('/api/intake', intakeRoutes);
+app.use('/api/vitals', vitalsRoutes);
+app.use('/api/clinical-notes', clinicalNoteRoutes);
+app.use('/api/medicines', medicineRoutes);
+app.use('/api/organization', organizationRoutes);
 
 // 404 handler
 app.use((req, res) => {

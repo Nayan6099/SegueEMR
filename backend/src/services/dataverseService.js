@@ -16,14 +16,12 @@ let tokenExpiresAt = 0;
  */
 async function getAccessToken() {
   const now = Date.now();
-  // Return cached token if still valid (with 5 min buffer)
   if (accessToken && tokenExpiresAt > now + 300000) {
     return accessToken;
   }
 
   if (!DATAVERSE_ENVIRONMENT_URL || !DATAVERSE_CLIENT_ID || !DATAVERSE_CLIENT_SECRET || !DATAVERSE_TENANT_ID) {
-    console.warn('Azure Dataverse credentials not fully configured in env.');
-    return null;
+    throw new Error('Azure Dataverse credentials not fully configured in env.');
   }
 
   try {
@@ -49,18 +47,9 @@ async function getAccessToken() {
 
 /**
  * Sends a POST/PATCH request to Azure Dataverse OData Web API to sync an entity
- * 
- * @param {string} entitySetName - Name of the entity set (e.g., 'contacts', 'accounts')
- * @param {Object} data - Entity payload
- * @param {string} [id] - Optional ID for updating an existing entity
  */
 async function syncEntity(entitySetName, data, id = null) {
   const token = await getAccessToken();
-  if (!token) {
-    console.warn(`Dataverse sync bypassed for ${entitySetName} (no credentials)`);
-    return null;
-  }
-
   const url = id 
     ? `${DATAVERSE_ENVIRONMENT_URL}/api/data/v9.2/${entitySetName}(${id})`
     : `${DATAVERSE_ENVIRONMENT_URL}/api/data/v9.2/${entitySetName}`;
@@ -78,7 +67,7 @@ async function syncEntity(entitySetName, data, id = null) {
         'Content-Type': 'application/json',
         'OData-MaxVersion': '4.0',
         'OData-Version': '4.0',
-        ...(id ? { 'If-Match': '*' } : {}), // Prevent create-on-patch behavior if record missing
+        ...(id ? { 'If-Match': '*' } : {}),
       },
     });
 
@@ -89,7 +78,140 @@ async function syncEntity(entitySetName, data, id = null) {
   }
 }
 
+// User CRUD via contacts entity set
+async function findUser(userId) {
+  const token = await getAccessToken();
+  const filter = `$filter=employeeid eq '${userId}'`;
+  const url = `${DATAVERSE_ENVIRONMENT_URL}/api/data/v9.2/contacts?${filter}`;
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'OData-MaxVersion': '4.0',
+        'OData-Version': '4.0'
+      }
+    });
+    if (response.data.value && response.data.value.length > 0) {
+      const item = response.data.value[0];
+      return {
+        id: item.contactid,
+        userId: item.employeeid,
+        password: item.jobtitle,
+        role: item.department,
+        orgName: item.companyname,
+        status: item.statecode === 0 ? 'active' : 'inactive',
+        metadata: item.description ? JSON.parse(item.description) : {}
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error finding user in Dataverse:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+async function createUser(user) {
+  const payload = {
+    employeeid: user.userId,
+    jobtitle: user.password,
+    department: user.role,
+    companyname: user.orgName || 'hospital',
+    description: JSON.stringify(user.metadata || {})
+  };
+  await syncEntity('contacts', payload);
+  return user;
+}
+
+// Organization CRUD via accounts entity set
+async function findOrganization(orgName) {
+  const token = await getAccessToken();
+  const filter = `$filter=name eq '${orgName}'`;
+  const url = `${DATAVERSE_ENVIRONMENT_URL}/api/data/v9.2/accounts?${filter}`;
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'OData-MaxVersion': '4.0',
+        'OData-Version': '4.0'
+      }
+    });
+    if (response.data.value && response.data.value.length > 0) {
+      const item = response.data.value[0];
+      return {
+        id: item.accountid,
+        orgName: item.name,
+        departments: item.description ? JSON.parse(item.description) : [],
+        accessRules: item.address1_composite ? JSON.parse(item.address1_composite) : []
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error finding org in Dataverse:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+async function createOrganization(org) {
+  const payload = {
+    name: org.orgName,
+    description: JSON.stringify(org.departments || []),
+    address1_composite: JSON.stringify(org.accessRules || [])
+  };
+  await syncEntity('accounts', payload);
+  return org;
+}
+
+async function updateOrganization(orgName, updates) {
+  const org = await findOrganization(orgName);
+  if (!org) {
+    throw new Error('Organization not found in Dataverse');
+  }
+  const payload = {};
+  if (updates.departments) {
+    payload.description = JSON.stringify(updates.departments);
+  }
+  if (updates.accessRules) {
+    payload.address1_composite = JSON.stringify(updates.accessRules);
+  }
+  await syncEntity('accounts', payload, org.id);
+  return { ...org, ...updates };
+}
+
+// Expose staff listing by companyname
+async function listStaff(orgName) {
+  const token = await getAccessToken();
+  const filter = `$filter=companyname eq '${orgName}'`;
+  const url = `${DATAVERSE_ENVIRONMENT_URL}/api/data/v9.2/contacts?${filter}`;
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'OData-MaxVersion': '4.0',
+        'OData-Version': '4.0'
+      }
+    });
+    return (response.data.value || []).map(item => ({
+      userId: item.employeeid,
+      role: item.department,
+      orgName: item.companyname,
+      status: item.statecode === 0 ? 'active' : 'inactive'
+    }));
+  } catch (error) {
+    console.error('Error listing staff in Dataverse:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   getAccessToken,
   syncEntity,
+  findUser,
+  createUser,
+  findOrganization,
+  createOrganization,
+  updateOrganization,
+  listStaff
 };

@@ -1,65 +1,32 @@
-const db = require('../config/db');
+const prisma = require('../config/prisma');
 
-/**
- * Inserts an activity log record into the PostgreSQL database.
- *
- * @param {Object} logData
- * @param {string} logData.userId
- * @param {string} logData.action
- * @param {string} [logData.recordId]
- * @param {string} [logData.targetUserId]
- * @param {Object} [logData.details]
- * @param {string} [logData.ipAddress]
- * @param {string} [logData.userAgent]
- * @param {string} [logData.status] - 'success' | 'failed' | 'pending'
- * @param {string} [logData.errorMessage]
- */
-async function logActivity(logData) {
-  const {
-    userId,
-    action,
-    recordId = null,
-    targetUserId = null,
-    details = {},
-    ipAddress = null,
-    userAgent = null,
-    status = 'success',
-    errorMessage = null,
-  } = logData;
+async function logActivity(actionOrData, userId, details) {
+  let finalAction;
+  let finalUserId;
+  let finalDetails = {};
+
+  if (typeof actionOrData === 'object' && actionOrData !== null) {
+    finalAction = actionOrData.action;
+    finalUserId = actionOrData.userId;
+    finalDetails = actionOrData.details || {};
+  } else {
+    finalAction = actionOrData;
+    finalUserId = userId;
+    finalDetails = details || {};
+  }
 
   try {
-    const queryText = `
-      INSERT INTO activity_logs (
-        user_id,
-        action,
-        record_id,
-        target_user_id,
-        details,
-        ip_address,
-        user_agent,
-        status,
-        error_message,
-        timestamp
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-      RETURNING id;
-    `;
-    const values = [
-      userId,
-      action,
-      recordId,
-      targetUserId,
-      JSON.stringify(details),
-      ipAddress,
-      userAgent,
-      status,
-      errorMessage,
-    ];
-
-    const res = await db.query(queryText, values);
-    return res.rows[0].id;
+    const log = await prisma.activityLog.create({
+      data: {
+        userId: String(finalUserId || 'system'),
+        role: 'user',
+        action: String(finalAction),
+        details: JSON.stringify(finalDetails)
+      }
+    });
+    return log.id;
   } catch (error) {
-    console.error('Error inserting activity log to DB:', error);
-    // Do not crash the app if logging fails
+    console.error('Error inserting activity log to DB:', error.message);
     return null;
   }
 }

@@ -1,65 +1,60 @@
-const mongoose = require('mongoose');
+const prisma = require('../config/prisma');
 
-const EHRMetadataSchema = new mongoose.Schema({
-    recordId: { type: String, required: true, unique: true, index: true },
-    patientId: { type: String, required: true, index: true },
-    patientName: { type: String, required: true },
-    ipfsHash: { type: String, required: true },
-    recordType: {
-        type: String,
-        required: true,
-        enum: ['X-Ray', 'MRI', 'Blood Test', 'CT Scan', 'Prescription', 'Report', 'Other']
-    },
-    description: { type: String, default: '' },
-    fileSize: { type: Number, required: true },
-    uploadDate: { type: Date, default: Date.now, index: true },
-    uploadedBy: { type: String, required: true },
-    blockchainTxId: { type: String, default: null },
-    encryptionKey: { type: String, default: null },
-    authorizedUsers: { type: [String], default: [] }
-}, { timestamps: true });
-
-const EHRMetadata = mongoose.model('EHRMetadata', EHRMetadataSchema);
+const mapMetadata = (record) => {
+    if (!record) return null;
+    const meta = JSON.parse(record.metadata || '{}');
+    return {
+        recordId: record.recordId,
+        patientId: record.patientId,
+        patientName: meta.patientName || '',
+        ipfsHash: meta.ipfsHash || '',
+        recordType: meta.recordType || 'Report',
+        description: meta.description || '',
+        fileSize: Number(meta.fileSize || 0),
+        uploadedBy: record.doctorId,
+        encryptionKey: meta.encryptionKey || '',
+        authorizedUsers: meta.authorizedUsers || [record.patientId],
+        uploadDate: record.createdAt,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt
+    };
+};
 
 class DatabaseService {
     constructor() {
-        this.isConnected = false;
+        this.isConnected = true;
     }
 
     async connect() {
-        try {
-            if (this.isConnected) return;
-            await mongoose.connect('mongodb://localhost:27017/ehr_database', {
-                useNewUrlParser: true,
-                useUnifiedTopology: true
-            });
-            this.isConnected = true;
-            console.log('✓ Connected to MongoDB successfully');
-        } catch (error) {
-            console.error('MongoDB connection error:', error);
-            throw error;
-        }
+        // No-op for Prisma client
+        return true;
     }
 
     async saveMetadata(metadata) {
         try {
-            await this.connect();
-            const ehrMetadata = new EHRMetadata({
-                recordId: metadata.recordId,
-                patientId: metadata.patientId,
+            const authorizedUsers = metadata.authorizedUsers || [metadata.patientId];
+            const metaPayload = {
                 patientName: metadata.patientName,
                 ipfsHash: metadata.ipfsHash,
                 recordType: metadata.recordType,
                 description: metadata.description || '',
                 fileSize: metadata.fileSize,
-                uploadedBy: metadata.uploadedBy,
-                blockchainTxId: metadata.blockchainTxId || null,
-                encryptionKey: metadata.encryptionKey || null,
-                authorizedUsers: metadata.authorizedUsers || [metadata.patientId]
+                encryptionKey: metadata.encryptionKey || '',
+                authorizedUsers
+            };
+
+            const record = await prisma.eHRMetadata.create({
+                data: {
+                    recordId: metadata.recordId,
+                    patientId: metadata.patientId,
+                    doctorId: metadata.uploadedBy || '',
+                    orgName: 'hospital',
+                    metadata: JSON.stringify(metaPayload)
+                }
             });
-            await ehrMetadata.save();
+
             console.log(`✓ Metadata saved for record ${metadata.recordId}`);
-            return ehrMetadata;
+            return mapMetadata(record);
         } catch (error) {
             console.error('Error saving metadata:', error);
             throw error;
@@ -68,19 +63,12 @@ class DatabaseService {
 
     async getRecordsByPatient(patientId, options = {}) {
         try {
-            await this.connect();
-            const query = { patientId };
-            if (options.recordType) query.recordType = options.recordType;
-            if (options.startDate || options.endDate) {
-                query.uploadDate = {};
-                if (options.startDate) query.uploadDate.$gte = new Date(options.startDate);
-                if (options.endDate) query.uploadDate.$lte = new Date(options.endDate);
-            }
-            const records = await EHRMetadata.find(query)
-                .sort({ uploadDate: -1 })
-                .limit(options.limit || 100);
-            console.log(`✓ Found ${records.length} records for patient ${patientId}`);
-            return records;
+            const records = await prisma.eHRMetadata.findMany({
+                where: { patientId },
+                orderBy: { createdAt: 'desc' },
+                take: options.limit || 100
+            });
+            return records.map(mapMetadata);
         } catch (error) {
             console.error('Error fetching records:', error);
             throw error;
@@ -89,10 +77,11 @@ class DatabaseService {
 
     async getRecordById(recordId) {
         try {
-            await this.connect();
-            const record = await EHRMetadata.findOne({ recordId });
+            const record = await prisma.eHRMetadata.findUnique({
+                where: { recordId }
+            });
             if (!record) throw new Error(`Record ${recordId} not found in database`);
-            return record;
+            return mapMetadata(record);
         } catch (error) {
             console.error('Error fetching record:', error);
             throw error;
@@ -101,12 +90,11 @@ class DatabaseService {
 
     async getRecordsAccessibleByUser(userId) {
         try {
-            await this.connect();
-            const records = await EHRMetadata.find({
-                authorizedUsers: userId
-            }).sort({ uploadDate: -1 }).limit(100);
-            console.log(`✓ Found ${records.length} records accessible by ${userId}`);
-            return records;
+            const allRecords = await prisma.eHRMetadata.findMany({
+                orderBy: { createdAt: 'desc' }
+            });
+            const mapped = allRecords.map(mapMetadata);
+            return mapped.filter(r => r.authorizedUsers.includes(userId));
         } catch (error) {
             console.error('Error fetching accessible records:', error);
             throw error;
@@ -115,15 +103,34 @@ class DatabaseService {
 
     async updateMetadata(recordId, updates) {
         try {
-            await this.connect();
-            const result = await EHRMetadata.findOneAndUpdate(
-                { recordId },
-                updates,
-                { new: true }
-            );
-            if (!result) throw new Error(`Record ${recordId} not found`);
+            const record = await prisma.eHRMetadata.findUnique({
+                where: { recordId }
+            });
+            if (!record) throw new Error(`Record ${recordId} not found`);
+
+            const currentMeta = JSON.parse(record.metadata || '{}');
+            let updatedMeta = { ...currentMeta };
+
+            if (updates.$addToSet && updates.$addToSet.authorizedUsers) {
+                const userToAdd = updates.$addToSet.authorizedUsers;
+                const currentUsers = currentMeta.authorizedUsers || [record.patientId];
+                if (!currentUsers.includes(userToAdd)) {
+                    currentUsers.push(userToAdd);
+                }
+                updatedMeta.authorizedUsers = currentUsers;
+            } else {
+                updatedMeta = { ...currentMeta, ...updates };
+            }
+
+            const updatedRecord = await prisma.eHRMetadata.update({
+                where: { recordId },
+                data: {
+                    metadata: JSON.stringify(updatedMeta)
+                }
+            });
+
             console.log(`✓ Metadata updated for record ${recordId}`);
-            return result;
+            return mapMetadata(updatedRecord);
         } catch (error) {
             console.error('Error updating metadata:', error);
             throw error;
@@ -132,18 +139,16 @@ class DatabaseService {
 
     async getStatistics(patientId) {
         try {
-            await this.connect();
-            const stats = await EHRMetadata.aggregate([
-                { $match: { patientId } },
-                {
-                    $group: {
-                        _id: '$recordType',
-                        count: { $sum: 1 },
-                        totalSize: { $sum: '$fileSize' }
-                    }
+            const records = await this.getRecordsByPatient(patientId);
+            const statsMap = {};
+            records.forEach(r => {
+                if (!statsMap[r.recordType]) {
+                    statsMap[r.recordType] = { _id: r.recordType, count: 0, totalSize: 0 };
                 }
-            ]);
-            return stats;
+                statsMap[r.recordType].count += 1;
+                statsMap[r.recordType].totalSize += r.fileSize;
+            });
+            return Object.values(statsMap);
         } catch (error) {
             console.error('Error getting statistics:', error);
             throw error;

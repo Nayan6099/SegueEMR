@@ -1,19 +1,34 @@
-/**
- * Prescription Controller
- *
- * Features:
- * - Doctor: create prescriptions
- * - Pharmacist: view pending prescriptions, dispense, track history
- */
-
 const crypto = require('crypto');
-const Prescription = require('../models/Prescription');
+const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 
 const genId = () => `RX-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
+const mapPrescription = (rx) => {
+    if (!rx) return null;
+    return {
+        id: rx.id,
+        prescriptionId: rx.id,
+        patientId: rx.patientId,
+        patientName: rx.patientName,
+        doctorId: rx.doctorId,
+        doctorName: rx.doctorName,
+        diagnosis: rx.diagnosis,
+        status: rx.status,
+        dispensedBy: rx.dispensedBy,
+        dispensedAt: rx.dispensedAt,
+        createdAt: rx.createdAt,
+        updatedAt: rx.updatedAt,
+        medications: (rx.medications || []).map(med => ({
+            name: med.name,
+            dosage: med.dosage,
+            frequency: med.frequency,
+            duration: med.duration
+        }))
+    };
+};
+
 class PrescriptionController {
-    // Doctor: issue a new prescription
     async createPrescription(req, res) {
         try {
             const { patientId, patientName, doctorId, doctorName, medications, diagnosis } = req.body;
@@ -25,25 +40,35 @@ class PrescriptionController {
                 });
             }
 
-            const prescription = await Prescription.create({
-                prescriptionId: genId(),
-                patientId,
-                patientName,
-                doctorId,
-                doctorName: doctorName || '',
-                medications,
-                diagnosis: diagnosis || ''
+            const prescription = await prisma.prescription.create({
+                data: {
+                    id: genId(),
+                    patientId,
+                    patientName,
+                    doctorId,
+                    doctorName: doctorName || '',
+                    diagnosis: diagnosis || '',
+                    status: 'pending',
+                    medications: {
+                        create: medications.map(med => ({
+                            name: med.name,
+                            dosage: med.dosage || '',
+                            frequency: med.frequency || '',
+                            duration: med.duration || ''
+                        }))
+                    }
+                },
+                include: { medications: true }
             });
 
-            await logActivity('PRESCRIPTION_CREATED', doctorId, { prescriptionId: prescription.prescriptionId, patientId });
+            await logActivity('PRESCRIPTION_CREATED', doctorId, { prescriptionId: prescription.id, patientId });
 
-            return res.status(201).json({ success: true, data: prescription });
+            return res.status(201).json({ success: true, data: mapPrescription(prescription) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
     }
 
-    // Pharmacist: mark a prescription as dispensed
     async dispensePrescription(req, res) {
         try {
             const { prescriptionId } = req.params;
@@ -53,35 +78,42 @@ class PrescriptionController {
                 return res.status(400).json({ success: false, error: 'dispensedBy is required' });
             }
 
-            const prescription = await Prescription.findOneAndUpdate(
-                { prescriptionId, status: 'pending' },
-                { status: 'dispensed', dispensedBy, dispensedAt: new Date() },
-                { new: true }
-            );
+            const checkPrescription = await prisma.prescription.findUnique({
+                where: { id: prescriptionId }
+            });
 
-            if (!prescription) {
+            if (!checkPrescription || checkPrescription.status !== 'pending') {
                 return res.status(404).json({ success: false, error: 'Pending prescription not found' });
             }
 
+            const prescription = await prisma.prescription.update({
+                where: { id: prescriptionId },
+                data: { status: 'dispensed', dispensedBy, dispensedAt: new Date() },
+                include: { medications: true }
+            });
+
             await logActivity('PRESCRIPTION_DISPENSED', dispensedBy, { prescriptionId });
 
-            return res.json({ success: true, data: prescription });
+            return res.json({ success: true, data: mapPrescription(prescription) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
     }
 
-    // List prescriptions, filterable by patientId, doctorId, or status
     async listPrescriptions(req, res) {
         try {
             const { patientId, doctorId, status } = req.query;
-            const filter = {};
-            if (patientId) filter.patientId = patientId;
-            if (doctorId) filter.doctorId = doctorId;
-            if (status) filter.status = status;
+            const where = {};
+            if (patientId) where.patientId = patientId;
+            if (doctorId) where.doctorId = doctorId;
+            if (status) where.status = status;
 
-            const prescriptions = await Prescription.find(filter).sort({ createdAt: -1 });
-            return res.json({ success: true, data: prescriptions });
+            const prescriptions = await prisma.prescription.findMany({
+                where,
+                include: { medications: true },
+                orderBy: { createdAt: 'desc' }
+            });
+            return res.json({ success: true, data: prescriptions.map(mapPrescription) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }

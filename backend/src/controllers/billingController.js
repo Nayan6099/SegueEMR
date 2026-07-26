@@ -1,82 +1,112 @@
-/**
- * Billing Controller
- *
- * Features:
- * - Receptionist / Administrative Staff: generate invoices, record payments
- */
-
 const crypto = require('crypto');
-const Invoice = require('../models/Invoice');
+const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 
 const genId = () => `INV-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
+const mapInvoice = (inv) => {
+    if (!inv) return null;
+    return {
+        id: inv.id,
+        invoiceId: inv.id,
+        patientId: inv.patientId,
+        patientName: inv.patientName,
+        totalAmount: inv.totalAmount,
+        amount: inv.totalAmount,
+        status: inv.status,
+        createdBy: inv.createdBy,
+        paidAt: inv.paidAt,
+        createdAt: inv.createdAt,
+        updatedAt: inv.updatedAt,
+        items: (inv.items || []).map(item => ({
+            description: item.description,
+            amount: item.amount
+        }))
+    };
+};
+
 class BillingController {
-    // Create a new invoice
     async createInvoice(req, res) {
         try {
-            const { patientId, patientName, items, createdBy } = req.body;
+            const { patientId, patientName, items, amount, createdBy } = req.body;
 
-            if (!patientId || !patientName || !items || !items.length || !createdBy) {
+            const itemsArray = items || (amount ? [{ description: 'General Consultation', amount: Number(amount) }] : []);
+
+            if (!patientId || !patientName || !itemsArray.length || !createdBy) {
                 return res.status(400).json({
                     success: false,
                     error: 'patientId, patientName, items, and createdBy are required'
                 });
             }
 
-            const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+            const totalAmount = itemsArray.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-            const invoice = await Invoice.create({
-                invoiceId: genId(),
-                patientId,
-                patientName,
-                items,
-                totalAmount,
-                createdBy
+            const invoice = await prisma.invoice.create({
+                data: {
+                    id: genId(),
+                    patientId,
+                    patientName,
+                    totalAmount,
+                    createdBy,
+                    status: 'unpaid',
+                    items: {
+                        create: itemsArray.map(item => ({
+                            description: item.description,
+                            amount: Number(item.amount || 0)
+                        }))
+                    }
+                },
+                include: { items: true }
             });
 
-            await logActivity('INVOICE_CREATED', createdBy, { invoiceId: invoice.invoiceId, patientId, totalAmount });
+            await logActivity('INVOICE_CREATED', createdBy, { invoiceId: invoice.id, patientId, totalAmount });
 
-            return res.status(201).json({ success: true, data: invoice });
+            return res.status(201).json({ success: true, data: mapInvoice(invoice) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
     }
 
-    // Mark an invoice as paid
     async markPaid(req, res) {
         try {
             const { invoiceId } = req.params;
             const { updatedBy } = req.body;
 
-            const invoice = await Invoice.findOneAndUpdate(
-                { invoiceId },
-                { status: 'paid', paidAt: new Date() },
-                { new: true }
-            );
+            const checkInvoice = await prisma.invoice.findUnique({
+                where: { id: invoiceId }
+            });
 
-            if (!invoice) {
+            if (!checkInvoice) {
                 return res.status(404).json({ success: false, error: 'Invoice not found' });
             }
 
+            const invoice = await prisma.invoice.update({
+                where: { id: invoiceId },
+                data: { status: 'paid', paidAt: new Date() },
+                include: { items: true }
+            });
+
             await logActivity('INVOICE_PAID', updatedBy || 'unknown', { invoiceId });
 
-            return res.json({ success: true, data: invoice });
+            return res.json({ success: true, data: mapInvoice(invoice) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
     }
 
-    // List invoices, filterable by patientId or status
     async listInvoices(req, res) {
         try {
             const { patientId, status } = req.query;
-            const filter = {};
-            if (patientId) filter.patientId = patientId;
-            if (status) filter.status = status;
+            const where = {};
+            if (patientId) where.patientId = patientId;
+            if (status) where.status = status;
 
-            const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
-            return res.json({ success: true, data: invoices });
+            const invoices = await prisma.invoice.findMany({
+                where,
+                include: { items: true },
+                orderBy: { createdAt: 'desc' }
+            });
+            return res.json({ success: true, data: invoices.map(mapInvoice) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }
