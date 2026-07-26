@@ -44,15 +44,9 @@ curl -X POST http://localhost:3000/api/ehr/upload \
   "message": "EHR record created successfully",
   "data": {
     "recordId": "EHR_1737331234_a7f3c2b9",
-    "ipfsHash": "QmX7x9abc123456789def...",
+    "blobReference": "patient123/EHR_1737331234_a7f3c2b9_report.pdf",
     "fileSize": 2457600,
-    "uploadDate": "2026-01-19T10:30:45.123Z",
-    "blockchainRecord": {
-      "recordId": "EHR_1737331234_a7f3c2b9",
-      "patientId": "patient123",
-      "authorizedUsers": ["patient123"],
-      "createdAt": "2026-01-19T10:30:45.123Z"
-    }
+    "uploadDate": "2026-01-19T10:30:45.123Z"
   }
 }
 ```
@@ -116,21 +110,21 @@ curl -X GET "http://localhost:3000/api/ehr/details?recordId=EHR_1737331234_a7f3c
 {
   "success": true,
   "data": {
-    "blockchain": {
+    "metadata": {
       "recordId": "EHR_1737331234_a7f3c2b9",
       "patientId": "patient123",
       "patientName": "John Doe",
-      "ipfsHash": "QmX7x9abc123...",
+      "blobReference": "patient123/EHR_1737331234_a7f3c2b9_report.pdf",
       "recordType": "X-Ray",
       "description": "Chest X-Ray",
-      "authorizedUsers": ["patient123", "dr.smith"],
-      "createdAt": "2026-01-19T10:30:45.123Z"
-    },
-    "metadata": {
-      "recordId": "EHR_1737331234_a7f3c2b9",
-      "patientName": "John Doe",
       "fileSize": 2457600,
-      "uploadDate": "2026-01-19T10:30:45.123Z"
+      "uploadedBy": "patient123",
+      "encryptionKey": "abcdef...",
+      "authorizedUsers": ["patient123", "dr.smith"],
+      "fhirResourceId": "123",
+      "uploadDate": "2026-01-19T10:30:45.123Z",
+      "createdAt": "2026-01-19T10:30:45.123Z",
+      "updatedAt": "2026-01-19T10:30:45.123Z"
     }
   }
 }
@@ -309,7 +303,7 @@ curl -X GET "http://localhost:3000/api/ehr/patient-records?patientId=patient123&
 ```json
 {
   "success": true,
-  "count": 3,
+  "count": 2,
   "data": [
     {
       "recordId": "EHR_1737331234_a7f3c2b9",
@@ -318,7 +312,7 @@ curl -X GET "http://localhost:3000/api/ehr/patient-records?patientId=patient123&
       "description": "Chest X-Ray",
       "uploadDate": "2026-01-19T10:30:45.123Z",
       "fileSize": 2457600,
-      "ipfsHash": "QmX7x9..."
+      "blobReference": "patient123/EHR_1737331234_a7f3c2b9_report.pdf"
     },
     {
       "recordId": "EHR_1737331235_b8g4d3c0",
@@ -327,7 +321,7 @@ curl -X GET "http://localhost:3000/api/ehr/patient-records?patientId=patient123&
       "description": "Annual checkup",
       "uploadDate": "2026-01-18T09:15:20.456Z",
       "fileSize": 524288,
-      "ipfsHash": "QmY8y0..."
+      "blobReference": "patient123/EHR_1737331235_b8g4d3c0_report.pdf"
     }
   ]
 }
@@ -387,9 +381,9 @@ curl -X POST http://localhost:3000/api/ehr/register-user \
 
 1. All timestamps are in ISO 8601 format (UTC)
 2. File sizes are in bytes
-3. IPFS hashes start with "Qm" (CIDv0) or "bafy" (CIDv1)
+3. Azure Blobs are named as `{patientId}/{recordId}_{filename}`
 4. Record IDs format: `EHR_<timestamp>_<random>`
-5. All blockchain operations are logged immutably
+5. All operations are logged in the off-chain audit logs
 
 ---
 

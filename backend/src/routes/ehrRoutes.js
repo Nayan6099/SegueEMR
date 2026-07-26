@@ -3,6 +3,7 @@ const multer = require('multer');
 const ehrController = require('../controllers/ehrController');
 const prisma = require('../config/prisma');
 const dataverseService = require('../services/dataverseService');
+const { validateUser } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
@@ -13,13 +14,13 @@ const upload = multer({
     }
 });
 
-router.post('/upload', upload.single('file'), ehrController.uploadEHR);
-router.get('/view', ehrController.viewEHR);
-router.get('/details', ehrController.getRecordDetails);
-router.post('/grant-access', ehrController.grantAccess);
-router.post('/revoke-access', ehrController.revokeAccess);
-router.get('/history', ehrController.getAccessHistory);
-router.get('/patient-records', ehrController.listPatientRecords);
+router.post('/upload', validateUser, upload.single('file'), ehrController.uploadEHR);
+router.get('/view', validateUser, ehrController.viewEHR);
+router.get('/details', validateUser, ehrController.getRecordDetails);
+router.post('/grant-access', validateUser, ehrController.grantAccess);
+router.post('/revoke-access', validateUser, ehrController.revokeAccess);
+router.get('/history', validateUser, ehrController.getAccessHistory);
+router.get('/patient-records', validateUser, ehrController.listPatientRecords);
 
 router.post('/register-user', async (req, res) => {
   try {
@@ -88,14 +89,10 @@ router.post('/register-user', async (req, res) => {
   }
 });
 
-router.delete('/delete/:recordId', async (req, res) => {
+router.delete('/delete/:recordId', validateUser, async (req, res) => {
   try {
     const { recordId } = req.params;
     const { userId, orgName } = req.query;
-
-    if (!userId || !orgName) {
-      return res.status(400).json({ error: 'userId and orgName are required' });
-    }
 
     const record = await prisma.eHRMetadata.findUnique({
       where: { recordId }

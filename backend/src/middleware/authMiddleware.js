@@ -27,52 +27,31 @@ const validateUser = async (req, res, next) => {
         });
     }
 
-    try {
-        const existing = await prisma.user.findUnique({ where: { id: userId } });
-        if (!existing) {
-            console.log(`[Auth] Auto-populating mock user for ${userId} (${orgName})`);
-            const targetRole = orgName === 'patient' 
-                ? 'patient' 
-                : (req.body.role || req.query.role || 'doctor');
+    // In production, we reject requests with unrecognized IDs to prevent silent database pollution.
+    // In non-production (development/test/CI) environments, we dynamically auto-populate mock
+    // User, Patient, and Doctor records to facilitate direct dashboard access without pre-seeding.
+    if (process.env.NODE_ENV !== 'production') {
+        try {
+            const existing = await prisma.user.findUnique({ where: { id: userId } });
+            if (!existing) {
+                console.log(`[Auth] Auto-populating mock user for ${userId} (${orgName})`);
+                const targetRole = orgName === 'patient' 
+                    ? 'patient' 
+                    : (req.body.role || req.query.role || 'doctor');
 
-            await prisma.user.create({
-                data: {
-                    id: userId,
-                    username: userId,
-                    passwordHash: 'mock_password_hash',
-                    email: `${userId}@example.com`,
-                    role: targetRole,
-                    fullName: userId,
-                    status: 'active'
-                }
-            });
-
-            if (targetRole === 'patient') {
-                await prisma.patient.create({
+                await prisma.user.create({
                     data: {
                         id: userId,
-                        userId: userId,
-                        name: userId,
-                        dateOfBirth: new Date('1990-01-01'),
-                        gender: 'Other'
+                        username: userId,
+                        passwordHash: 'mock_password_hash',
+                        email: `${userId}@example.com`,
+                        role: targetRole,
+                        fullName: userId,
+                        status: 'active'
                     }
                 });
-            } else if (targetRole === 'doctor') {
-                await prisma.doctor.create({
-                    data: {
-                        id: userId,
-                        userId: userId,
-                        name: userId,
-                        specialization: 'General Medicine',
-                        licenseNumber: `LIC-${userId}`
-                    }
-                });
-            }
-        } else {
-            const targetRole = existing.role;
-            if (targetRole === 'patient') {
-                const patExists = await prisma.patient.findUnique({ where: { id: userId } });
-                if (!patExists) {
+
+                if (targetRole === 'patient') {
                     await prisma.patient.create({
                         data: {
                             id: userId,
@@ -82,10 +61,7 @@ const validateUser = async (req, res, next) => {
                             gender: 'Other'
                         }
                     });
-                }
-            } else if (targetRole === 'doctor') {
-                const docExists = await prisma.doctor.findUnique({ where: { id: userId } });
-                if (!docExists) {
+                } else if (targetRole === 'doctor') {
                     await prisma.doctor.create({
                         data: {
                             id: userId,
@@ -96,10 +72,57 @@ const validateUser = async (req, res, next) => {
                         }
                     });
                 }
+            } else {
+                const targetRole = existing.role;
+                if (targetRole === 'patient') {
+                    const patExists = await prisma.patient.findUnique({ where: { id: userId } });
+                    if (!patExists) {
+                        await prisma.patient.create({
+                            data: {
+                                id: userId,
+                                userId: userId,
+                                name: userId,
+                                dateOfBirth: new Date('1990-01-01'),
+                                gender: 'Other'
+                            }
+                        });
+                    }
+                } else if (targetRole === 'doctor') {
+                    const docExists = await prisma.doctor.findUnique({ where: { id: userId } });
+                    if (!docExists) {
+                        await prisma.doctor.create({
+                            data: {
+                                id: userId,
+                                userId: userId,
+                                name: userId,
+                                specialization: 'General Medicine',
+                                licenseNumber: `LIC-${userId}`
+                            }
+                        });
+                    }
+                }
             }
+        } catch (dbErr) {
+            console.error('[Auth] Error checking or creating mock user:', dbErr.message);
         }
-    } catch (dbErr) {
-        console.error('[Auth] Error checking or creating mock user:', dbErr.message);
+    } else {
+        // Enforce strict check in production: reject unrecognized IDs
+        try {
+            const existing = await prisma.user.findUnique({ where: { id: userId } });
+            if (!existing) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Authentication failed',
+                    message: 'User does not exist in the database'
+                });
+            }
+        } catch (dbErr) {
+            return res.status(500).json({
+                success: false,
+                error: 'Internal authentication error',
+                message: dbErr.message
+            });
+        }
     }
 
     // Attach user info to request
@@ -142,8 +165,8 @@ const isDoctor = (req, res, next) => {
 /**
  * Generic role guard.
  * Usage: requireRole('doctor', 'nurse')
- * Reads role from req.body.role / req.query.role since Mongo User.role
- * carries the fine-grained staff role (Fabric identity is org-level only).
+ * Reads role from req.body.role / req.query.role since PostgreSQL User.role
+ * carries the fine-grained staff role (directory sets are mapped from Dataverse).
  */
 const requireRole = (...allowedRoles) => (req, res, next) => {
     const role = req.body.role || req.query.role || (req.user && req.user.role);

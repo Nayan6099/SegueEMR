@@ -542,7 +542,7 @@ export default function Home() {
     try {
       setLoading(true);
       await api.uploadEHR(formData);
-      showToast('EMR Record uploaded and securely stored on IPFS & Blockchain');
+      showToast('EMR Record uploaded and securely stored on Azure Blob Storage');
       setUploadForm({ patientId: '', patientName: '', recordType: 'Report', description: '' });
       setSelectedFile(null);
       fetchData();
@@ -1487,7 +1487,7 @@ export default function Home() {
                   {/* EMR Records table */}
                   <div className="lg:col-span-2 bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
                     <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5">
-                      <FileText className="h-5 w-5 text-indigo-600" /> Electronic Records (Blockchain/IPFS)
+                      <FileText className="h-5 w-5 text-indigo-600" /> Electronic Records (Azure Blob Storage)
                     </h2>
                     {records.length === 0 ? (
                       <p className="text-sm text-slate-500 py-6 text-center">No EMR records uploaded.</p>

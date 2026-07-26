@@ -20,7 +20,7 @@ model Medicine {
   reorderThreshold Int      @default(10)
   expiryDate       DateTime
   createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime @default(now()) @updatedAt
 }
 
 model User {
@@ -32,7 +32,7 @@ model User {
   fullName     String    @map("full_name")
   status       String    @default("active")
   createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
   patient      Patient?
   doctor       Doctor?
 
@@ -52,7 +52,7 @@ model Patient {
   emergencyContact String?        @map("emergency_contact")
   bloodGroup       String?        @map("blood_group")
   createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
   appointments     Appointment[]
   prescriptions    Prescription[]
   labOrders        LabOrder[]
@@ -73,7 +73,7 @@ model Doctor {
   licenseNumber   String         @unique @map("license_number")
   consultationFee Float          @default(0.0) @map("consultation_fee")
   createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
+  updatedAt       DateTime       @default(now()) @updatedAt @map("updated_at")
   appointments    Appointment[]
   prescriptions   Prescription[]
   labOrders       LabOrder[]
@@ -92,7 +92,7 @@ model EHRMetadata {
   metadata       String
   fhirResourceId String?
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 }
 
 model ActivityLog {
@@ -117,7 +117,7 @@ model Appointment {
   notes          String?
   fhirResourceId String?
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 }
 
 model Prescription {
@@ -134,7 +134,7 @@ model Prescription {
   dispensedAt    DateTime?
   fhirResourceId String?
   createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  updatedAt      DateTime     @default(now()) @updatedAt
   medications    Medication[]
 }
 
@@ -164,7 +164,7 @@ model LabOrder {
   processedBy    String?
   fhirResourceId String?
   createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  updatedAt      DateTime  @default(now()) @updatedAt
 }
 
 model Invoice {
@@ -177,7 +177,7 @@ model Invoice {
   createdBy   String
   paidAt      DateTime?
   createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  updatedAt   DateTime   @default(now()) @updatedAt
   items       LineItem[]
 }
 
@@ -202,7 +202,7 @@ model ClinicalNote {
   soapPlan       String?
   recordedBy     String
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 }
 
 model Vitals {

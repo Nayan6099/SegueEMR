@@ -21,7 +21,8 @@ export interface EMRRecord {
   recordId: string;
   patientId: string;
   patientName: string;
-  ipfsHash?: string;
+  ipfsHash?: string; // Leftover for legacy compatibility
+  blobReference?: string;
   fileUrl?: string;
   recordType: string;
   description: string;
