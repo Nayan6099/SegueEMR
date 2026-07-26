@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const bcrypt = require('bcryptjs');
 
 /**
  * Validate user credentials
@@ -39,11 +40,13 @@ const validateUser = async (req, res, next) => {
                     ? 'patient' 
                     : (req.body.role || req.query.role || 'doctor');
 
+                const passwordHash = await bcrypt.hash('password123', 10);
+
                 await prisma.user.create({
                     data: {
                         id: userId,
                         username: userId,
-                        passwordHash: 'mock_password_hash',
+                        passwordHash: passwordHash,
                         email: `${userId}@example.com`,
                         role: targetRole,
                         fullName: userId,

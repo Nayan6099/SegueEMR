@@ -28,21 +28,32 @@ const mapAppointment = (apt) => {
 class AppointmentController {
     async createAppointment(req, res) {
         try {
-            const { patientId, patientName, doctorId, doctorName, scheduledAt, notes, status, createdBy } = req.body;
+            const { patientId, patientName, doctorId, doctorName, scheduledAt, notes, status } = req.body;
 
-            if (!patientId || !patientName || !doctorId || !scheduledAt || !createdBy) {
+            let finalPatientId = patientId;
+            let finalDoctorId = doctorId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            } else if (req.user.role === 'doctor') {
+                finalDoctorId = req.user.doctorId;
+            }
+
+            const createdBy = req.user.userId;
+
+            if (!finalPatientId || !patientName || !finalDoctorId || !scheduledAt) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId, patientName, doctorId, scheduledAt, and createdBy are required'
+                    error: 'patientId, patientName, doctorId, and scheduledAt are required'
                 });
             }
 
             const appointment = await prisma.appointment.create({
                 data: {
                     id: genId(),
-                    patientId,
+                    patientId: finalPatientId,
                     patientName,
-                    doctorId,
+                    doctorId: finalDoctorId,
                     doctorName: doctorName || '',
                     scheduledTime: new Date(scheduledAt),
                     status: status || 'scheduled',
@@ -50,7 +61,7 @@ class AppointmentController {
                 }
             });
 
-            await logActivity('APPOINTMENT_CREATED', createdBy, { appointmentId: appointment.id, patientId, doctorId });
+            await logActivity('APPOINTMENT_CREATED', createdBy, { appointmentId: appointment.id, patientId: finalPatientId, doctorId: finalDoctorId });
 
             // Sync to FHIR (fire-and-forget, non-blocking)
             fhirService.syncAppointment(appointment)
@@ -73,7 +84,8 @@ class AppointmentController {
     async updateAppointment(req, res) {
         try {
             const { appointmentId } = req.params;
-            const { scheduledAt, status, notes, updatedBy } = req.body;
+            const { scheduledAt, status, notes } = req.body;
+            const updatedBy = req.user.userId;
 
             const update = {};
             if (scheduledAt) update.scheduledTime = new Date(scheduledAt);
@@ -85,7 +97,7 @@ class AppointmentController {
                 data: update
             });
 
-            await logActivity('APPOINTMENT_UPDATED', updatedBy || 'unknown', { appointmentId, update });
+            await logActivity('APPOINTMENT_UPDATED', updatedBy, { appointmentId, update });
 
             // Sync to FHIR (fire-and-forget, non-blocking)
             fhirService.syncAppointment(appointment).catch(err => console.error('[FHIR] Appointment update sync failed:', err.message));
@@ -99,14 +111,14 @@ class AppointmentController {
     async cancelAppointment(req, res) {
         try {
             const { appointmentId } = req.params;
-            const { cancelledBy } = req.body;
+            const cancelledBy = req.user.userId;
 
             const appointment = await prisma.appointment.update({
                 where: { id: appointmentId },
                 data: { status: 'cancelled' }
             });
 
-            await logActivity('APPOINTMENT_CANCELLED', cancelledBy || 'unknown', { appointmentId });
+            await logActivity('APPOINTMENT_CANCELLED', cancelledBy, { appointmentId });
 
             // Sync to FHIR (fire-and-forget, non-blocking)
             fhirService.syncAppointment(appointment).catch(err => console.error('[FHIR] Appointment cancel sync failed:', err.message));
@@ -121,8 +133,18 @@ class AppointmentController {
         try {
             const { doctorId, patientId, status, from, to, search } = req.query;
             const where = {};
-            if (doctorId) where.doctorId = doctorId;
-            if (patientId) where.patientId = patientId;
+
+            let finalPatientId = patientId;
+            let finalDoctorId = doctorId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            } else if (req.user.role === 'doctor') {
+                finalDoctorId = req.user.doctorId;
+            }
+
+            if (finalDoctorId) where.doctorId = finalDoctorId;
+            if (finalPatientId) where.patientId = finalPatientId;
             if (status) where.status = status;
             if (search) {
                 where.patientName = { contains: search, mode: 'insensitive' };

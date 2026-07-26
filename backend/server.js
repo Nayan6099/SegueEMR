@@ -48,6 +48,7 @@ const vitalsRoutes = require('./src/routes/vitalsRoutes');
 const clinicalNoteRoutes = require('./src/routes/clinicalNoteRoutes');
 const medicineRoutes = require('./src/routes/medicineRoutes');
 const organizationRoutes = require('./src/routes/organizationRoutes');
+const authRoutes = require('./src/routes/authRoutes');
 
 const app = express();
 const db = require('./src/config/db');
@@ -80,6 +81,7 @@ app.use(morgan('dev'));
 app.use(activityLoggerMiddleware);
 
 app.use('/api/admin', adminRoutes);
+app.use('/api/auth', authRoutes);
 
 // Health check endpoint (load-balancer check)
 app.get('/health', async (req, res) => {

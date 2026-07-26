@@ -4,12 +4,13 @@ const { logActivity } = require('../services/activityLogger');
 class VitalsController {
     async createVitals(req, res) {
         try {
-            const { patientId, appointmentId, temperature, bloodPressure, pulse, spo2, recordedBy } = req.body;
+            const { patientId, appointmentId, temperature, bloodPressure, pulse, spo2 } = req.body;
+            const recordedBy = req.user.userId;
 
-            if (!patientId || !recordedBy) {
+            if (!patientId) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId and recordedBy are required'
+                    error: 'patientId is required'
                 });
             }
 
@@ -37,7 +38,13 @@ class VitalsController {
         try {
             const { patientId } = req.query;
             const where = {};
-            if (patientId) where.patientId = patientId;
+            let finalPatientId = patientId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+
+            if (finalPatientId) where.patientId = finalPatientId;
 
             const vitals = await prisma.vitals.findMany({
                 where,

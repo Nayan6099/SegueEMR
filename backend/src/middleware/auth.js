@@ -4,6 +4,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here';
 
 /**
  * Middleware to authenticate requests via JWT
+ * Rejects with 401 if missing or invalid.
  */
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -21,18 +22,21 @@ function authenticateToken(req, res, next) {
     req.user = verified;
     next();
   } catch (err) {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
-      error: 'Invalid or expired token'
+      error: 'Invalid or expired token',
+      message: err.message
     });
   }
 }
 
+const requireAuth = authenticateToken;
+
 /**
- * Middleware to authorize requests based on roles
- * @param {string[]} allowedRoles - Array of roles permitted to access the resource
+ * Middleware to authorize requests based on user roles
+ * @param {...string} allowedRoles - permitted roles
  */
-function requireRoles(allowedRoles) {
+function requireRole(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -45,7 +49,8 @@ function requireRoles(allowedRoles) {
     if (!allowedRoles.includes(role)) {
       return res.status(403).json({
         success: false,
-        error: `Access Denied: Role '${role}' is not authorized to access this resource`
+        error: 'Access Denied',
+        message: `Role '${role}' is not authorized to perform this action`
       });
     }
 
@@ -55,5 +60,6 @@ function requireRoles(allowedRoles) {
 
 module.exports = {
   authenticateToken,
-  requireRoles,
+  requireAuth,
+  requireRole,
 };

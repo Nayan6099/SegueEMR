@@ -28,14 +28,15 @@ const mapInvoice = (inv) => {
 class BillingController {
     async createInvoice(req, res) {
         try {
-            const { patientId, patientName, items, amount, createdBy } = req.body;
+            const { patientId, patientName, items, amount } = req.body;
+            const createdBy = req.user.userId;
 
             const itemsArray = items || (amount ? [{ description: 'General Consultation', amount: Number(amount) }] : []);
 
-            if (!patientId || !patientName || !itemsArray.length || !createdBy) {
+            if (!patientId || !patientName || !itemsArray.length) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId, patientName, items, and createdBy are required'
+                    error: 'patientId, patientName, and items are required'
                 });
             }
 
@@ -70,7 +71,7 @@ class BillingController {
     async markPaid(req, res) {
         try {
             const { invoiceId } = req.params;
-            const { updatedBy } = req.body;
+            const updatedBy = req.user.userId;
 
             const checkInvoice = await prisma.invoice.findUnique({
                 where: { id: invoiceId }
@@ -98,7 +99,13 @@ class BillingController {
         try {
             const { patientId, status } = req.query;
             const where = {};
-            if (patientId) where.patientId = patientId;
+            let finalPatientId = patientId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+
+            if (finalPatientId) where.patientId = finalPatientId;
             if (status) where.status = status;
 
             const invoices = await prisma.invoice.findMany({

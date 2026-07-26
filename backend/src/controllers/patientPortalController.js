@@ -7,7 +7,7 @@ class PatientPortalController {
   // --- Allergies ---
   async getAllergies(req, res) {
     try {
-      const { patientId } = req.query;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const result = await db.query('SELECT * FROM allergies WHERE patient_id = $1', [patientId]);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -17,7 +17,8 @@ class PatientPortalController {
 
   async addAllergy(req, res) {
     try {
-      const { patientId, allergen, severity, reaction } = req.body;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.body.patientId;
+      const { allergen, severity, reaction } = req.body;
       const id = generateId('ALG');
       await db.query(
         'INSERT INTO allergies (id, patient_id, allergen, severity, reaction) VALUES ($1, $2, $3, $4, $5)',
@@ -32,7 +33,7 @@ class PatientPortalController {
   // --- Medical Problems / Conditions ---
   async getProblems(req, res) {
     try {
-      const { patientId } = req.query;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const result = await db.query('SELECT * FROM problems WHERE patient_id = $1', [patientId]);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -42,7 +43,8 @@ class PatientPortalController {
 
   async addProblem(req, res) {
     try {
-      const { patientId, code, description, onsetDate } = req.body;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.body.patientId;
+      const { code, description, onsetDate } = req.body;
       const id = generateId('PRB');
       await db.query(
         'INSERT INTO problems (id, patient_id, code, description, onset_date) VALUES ($1, $2, $3, $4, $5)',
@@ -57,7 +59,7 @@ class PatientPortalController {
   // --- Medication Refills ---
   async listRefillRequests(req, res) {
     try {
-      const { patientId } = req.query;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const query = `
         SELECT mr.*, p.medication_details 
         FROM medication_refills mr
@@ -88,7 +90,7 @@ class PatientPortalController {
   // --- Intake Forms ---
   async getPatientForms(req, res) {
     try {
-      const { patientId } = req.query;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const result = await db.query('SELECT * FROM patient_forms WHERE patient_id = $1', [patientId]);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -98,7 +100,8 @@ class PatientPortalController {
 
   async submitPatientForm(req, res) {
     try {
-      const { patientId, formType, formData } = req.body;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.body.patientId;
+      const { formType, formData } = req.body;
       const id = generateId('FRM');
       await db.query(
         'INSERT INTO patient_forms (id, patient_id, form_type, form_data, status, submitted_at) VALUES ($1, $2, $3, $4, $5, NOW())',
@@ -113,11 +116,12 @@ class PatientPortalController {
   // --- Secure Messaging (Chat) ---
   async getMessages(req, res) {
     try {
-      const { userId, otherId } = req.query;
+      const userId = req.user.userId;
+      const { otherId } = req.query;
       const query = `
         SELECT * FROM messages 
         WHERE (sender_id = $1 AND receiver_id = $2) 
-           OR (sender_id = $2 AND receiver_id = $1)
+         OR (sender_id = $2 AND receiver_id = $1)
         ORDER BY sent_at ASC
       `;
       const result = await db.query(query, [userId, otherId]);
@@ -129,7 +133,8 @@ class PatientPortalController {
 
   async sendMessage(req, res) {
     try {
-      const { senderId, receiverId, content } = req.body;
+      const senderId = req.user.userId;
+      const { receiverId, content } = req.body;
       const id = generateId('MSG');
       await db.query(
         'INSERT INTO messages (id, sender_id, receiver_id, content) VALUES ($1, $2, $3, $4)',
@@ -144,7 +149,7 @@ class PatientPortalController {
   // --- Third-Party Integration API Keys ---
   async getApiKeys(req, res) {
     try {
-      const { patientId } = req.query;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const result = await db.query('SELECT id, name, status, expires_at, created_at FROM patient_api_keys WHERE patient_id = $1', [patientId]);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -154,7 +159,8 @@ class PatientPortalController {
 
   async generateApiKey(req, res) {
     try {
-      const { patientId, keyName, durationDays = 30 } = req.body;
+      const { keyName, durationDays = 30 } = req.body;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.body.patientId;
       const rawKey = `sdk_pat_${crypto.randomBytes(24).toString('hex')}`;
       const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
       const id = generateId('KEY');
@@ -182,7 +188,7 @@ class PatientPortalController {
   // --- CCDA XML Import / Export ---
   async exportCCDA(req, res) {
     try {
-      const { patientId } = req.params;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.params.patientId;
 
       // Fetch patient, EMRs, allergies, and problems
       const patient = await db.query('SELECT * FROM patients WHERE id = $1', [patientId]);
@@ -244,7 +250,7 @@ class PatientPortalController {
 
   async importCCDA(req, res) {
     try {
-      const { patientId } = req.body;
+      const patientId = req.user.role === 'patient' ? req.user.patientId : req.body.patientId;
       const xmlContent = req.file?.buffer.toString('utf-8');
 
       if (!xmlContent) {

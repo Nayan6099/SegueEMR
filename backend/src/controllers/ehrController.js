@@ -56,6 +56,12 @@ class EHRController {
                 });
             }
 
+            let finalPatientId = patientId;
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+            const uploadedBy = req.user.userId;
+
             // Generate unique record ID
             const recordId = `EHR_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
             console.log(`Generated Record ID: ${recordId}`);
@@ -69,7 +75,7 @@ class EHRController {
 
             // Upload to Azure Blob Storage
             console.log('Uploading to Azure Blob Storage...');
-            const blobName = `${patientId}/${recordId}_${req.file.originalname}`;
+            const blobName = `${finalPatientId}/${recordId}_${req.file.originalname}`;
             const blobUrl = await blobStorageService.uploadBlob(blobName, encryptedBuffer, req.file.mimetype);
             console.log(`Uploaded blob URL: ${blobUrl}`);
 
@@ -77,13 +83,13 @@ class EHRController {
             console.log('Saving metadata to database...');
             const savedMetadata = await dbService.saveMetadata({
                 recordId,
-                patientId,
+                patientId: finalPatientId,
                 patientName,
-                blobReference: blobName, // Store blob path/name as the reference
+                blobReference: blobName,
                 recordType,
                 description: description || '',
                 fileSize: req.file.size,
-                uploadedBy: patientId, // patient upload self
+                uploadedBy,
                 encryptionKey
             });
 
@@ -101,7 +107,7 @@ class EHRController {
                 })
                 .catch(err => console.error('[FHIR] DocumentReference sync failed:', err.message));
 
-            await logActivity('RECORD_UPLOADED', patientId, { recordId, recordType, fileSize: req.file.size });
+            await logActivity('RECORD_UPLOADED', uploadedBy, { recordId, recordType, fileSize: req.file.size });
 
             return res.status(201).json({
                 success: true,
@@ -130,11 +136,12 @@ class EHRController {
         try {
             console.log('\n=== VIEW EHR REQUEST ===');
 
-            const { recordId, userId, orgName } = req.query;
+            const { recordId } = req.query;
+            const userId = req.user.userId;
 
-            if (!recordId || !userId || !orgName) {
+            if (!recordId) {
                 return res.status(400).json({
-                    error: 'Missing required params: recordId, userId, orgName'
+                    error: 'Missing required param: recordId'
                 });
             }
 
@@ -181,11 +188,12 @@ class EHRController {
      */
     async getRecordDetails(req, res) {
         try {
-            const { recordId, userId, orgName } = req.query;
+            const { recordId } = req.query;
+            const userId = req.user.userId;
 
-            if (!recordId || !userId || !orgName) {
+            if (!recordId) {
                 return res.status(400).json({
-                    error: 'Missing required params: recordId, userId, orgName'
+                    error: 'Missing required param: recordId'
                 });
             }
 
@@ -223,11 +231,12 @@ class EHRController {
         try {
             console.log('\n=== GRANT ACCESS REQUEST ===');
 
-            const { recordId, patientId, doctorId } = req.body;
+            const { recordId, doctorId } = req.body;
+            const patientId = req.user.patientId;
 
             if (!recordId || !patientId || !doctorId) {
                 return res.status(400).json({
-                    error: 'Missing required fields: recordId, patientId, doctorId'
+                    error: 'Missing required fields: recordId, doctorId'
                 });
             }
 
@@ -268,11 +277,12 @@ class EHRController {
         try {
             console.log('\n=== REVOKE ACCESS REQUEST ===');
 
-            const { recordId, patientId, doctorId } = req.body;
+            const { recordId, doctorId } = req.body;
+            const patientId = req.user.patientId;
 
             if (!recordId || !patientId || !doctorId) {
                 return res.status(400).json({
-                    error: 'Missing required fields: recordId, patientId, doctorId'
+                    error: 'Missing required fields: recordId, doctorId'
                 });
             }
 
@@ -311,11 +321,21 @@ class EHRController {
      */
     async getAccessHistory(req, res) {
         try {
-            const { recordId, userId, orgName } = req.query;
+            const { recordId } = req.query;
 
-            if (!recordId || !userId || !orgName) {
+            if (!recordId) {
                 return res.status(400).json({
-                    error: 'Missing required params: recordId, userId, orgName'
+                    error: 'Missing required param: recordId'
+                });
+            }
+
+            // Verify access history permissions (admin or record owner)
+            const metadata = await dbService.getRecordById(recordId);
+            if (req.user.role !== 'admin' && req.user.role !== 'admin_staff' && metadata.patientId !== req.user.patientId) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Access Denied',
+                    details: 'Unauthorized to view access logs for this record'
                 });
             }
 
@@ -355,19 +375,19 @@ class EHRController {
      */
     async listPatientRecords(req, res) {
         try {
-            const { patientId, userId, orgName } = req.query;
-
-            if (!patientId || !userId || !orgName) {
-                return res.status(400).json({
-                    error: 'Missing required params: patientId, userId, orgName'
-                });
-            }
+            const { patientId } = req.query;
+            const userId = req.user.userId;
+            const role = req.user.role;
 
             let metadata;
-            if (orgName === 'patient') {
-                metadata = await dbService.getRecordsByPatient(patientId);
+            if (role === 'patient') {
+                const finalPatientId = req.user.patientId;
+                metadata = await dbService.getRecordsByPatient(finalPatientId);
             } else {
                 metadata = await dbService.getRecordsAccessibleByUser(userId);
+                if (patientId) {
+                    metadata = metadata.filter(m => m.patientId === patientId);
+                }
             }
 
             return res.json({

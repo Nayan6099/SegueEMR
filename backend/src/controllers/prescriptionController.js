@@ -33,12 +33,14 @@ const mapPrescription = (rx) => {
 class PrescriptionController {
     async createPrescription(req, res) {
         try {
-            const { patientId, patientName, doctorId, doctorName, medications, diagnosis } = req.body;
+            const { patientId, patientName, medications, diagnosis } = req.body;
+            const doctorId = req.user.doctorId;
+            const doctorName = req.user.fullName || '';
 
             if (!patientId || !patientName || !doctorId || !medications || !medications.length) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId, patientName, doctorId, and at least one medication are required'
+                    error: 'patientId, patientName, and at least one medication are required'
                 });
             }
 
@@ -48,7 +50,7 @@ class PrescriptionController {
                     patientId,
                     patientName,
                     doctorId,
-                    doctorName: doctorName || '',
+                    doctorName,
                     diagnosis: diagnosis || '',
                     status: 'pending',
                     medications: {
@@ -86,11 +88,7 @@ class PrescriptionController {
     async dispensePrescription(req, res) {
         try {
             const { prescriptionId } = req.params;
-            const { dispensedBy } = req.body;
-
-            if (!dispensedBy) {
-                return res.status(400).json({ success: false, error: 'dispensedBy is required' });
-            }
+            const dispensedBy = req.user.userId;
 
             const checkPrescription = await prisma.prescription.findUnique({
                 where: { id: prescriptionId }
@@ -121,7 +119,13 @@ class PrescriptionController {
         try {
             const { patientId, doctorId, status } = req.query;
             const where = {};
-            if (patientId) where.patientId = patientId;
+            let finalPatientId = patientId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+
+            if (finalPatientId) where.patientId = finalPatientId;
             if (doctorId) where.doctorId = doctorId;
             if (status) where.status = status;
 

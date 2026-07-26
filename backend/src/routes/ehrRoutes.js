@@ -1,9 +1,10 @@
 const express = require('express');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const ehrController = require('../controllers/ehrController');
 const prisma = require('../config/prisma');
 const dataverseService = require('../services/dataverseService');
-const { validateUser } = require('../middleware/authMiddleware');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -14,20 +15,20 @@ const upload = multer({
     }
 });
 
-router.post('/upload', validateUser, upload.single('file'), ehrController.uploadEHR);
-router.get('/view', validateUser, ehrController.viewEHR);
-router.get('/details', validateUser, ehrController.getRecordDetails);
-router.post('/grant-access', validateUser, ehrController.grantAccess);
-router.post('/revoke-access', validateUser, ehrController.revokeAccess);
-router.get('/history', validateUser, ehrController.getAccessHistory);
-router.get('/patient-records', validateUser, ehrController.listPatientRecords);
+router.post('/upload', requireAuth, requireRole('doctor', 'patient'), upload.single('file'), ehrController.uploadEHR);
+router.get('/view', requireAuth, ehrController.viewEHR);
+router.get('/details', requireAuth, ehrController.getRecordDetails);
+router.post('/grant-access', requireAuth, requireRole('patient'), ehrController.grantAccess);
+router.post('/revoke-access', requireAuth, requireRole('patient'), ehrController.revokeAccess);
+router.get('/history', requireAuth, requireRole('admin_staff', 'admin', 'patient'), ehrController.getAccessHistory);
+router.get('/patient-records', requireAuth, requireRole('patient', 'doctor'), ehrController.listPatientRecords);
 
 router.post('/register-user', async (req, res) => {
   try {
-    const { userId, name, orgName, role, metadata } = req.body;
+    const { userId, name, orgName, role, password, metadata } = req.body;
 
-    if (!userId || !name || !orgName || !role) {
-      return res.status(400).json({ error: 'userId, name, orgName, and role are required' });
+    if (!userId || !name || !orgName || !role || !password) {
+      return res.status(400).json({ error: 'userId, name, orgName, role, and password are required' });
     }
 
     const existingLocal = await prisma.user.findUnique({ where: { id: userId } });
@@ -35,11 +36,13 @@ router.post('/register-user', async (req, res) => {
       return res.status(409).json({ error: 'User already exists' });
     }
 
+    const passwordHash = await bcrypt.hash(password, 10);
+
     const user = await prisma.user.create({
       data: {
         id: userId,
         username: userId,
-        passwordHash: 'mock_password_hash',
+        passwordHash: passwordHash,
         email: `${userId}@example.com`,
         role: role,
         fullName: name,
@@ -89,7 +92,7 @@ router.post('/register-user', async (req, res) => {
   }
 });
 
-router.delete('/delete/:recordId', validateUser, async (req, res) => {
+router.delete('/delete/:recordId', requireAuth, requireRole('doctor', 'patient'), async (req, res) => {
   try {
     const { recordId } = req.params;
     const { userId, orgName } = req.query;

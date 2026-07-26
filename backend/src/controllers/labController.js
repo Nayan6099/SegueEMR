@@ -30,13 +30,14 @@ const mapLabOrder = (lab) => {
 class LabController {
     async createLabOrder(req, res) {
         try {
-            const { patientId, patientName, doctorId, testType, testName, notes } = req.body;
+            const { patientId, patientName, testType, testName, notes } = req.body;
+            const doctorId = req.user.doctorId;
 
             const nameOfTest = testType || testName;
             if (!patientId || !patientName || !doctorId || !nameOfTest) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId, patientName, doctorId, and testType/testName are required'
+                    error: 'patientId, patientName, and testType/testName are required'
                 });
             }
 
@@ -75,10 +76,11 @@ class LabController {
     async updateLabOrderStatus(req, res) {
         try {
             const { labOrderId } = req.params;
-            const { status, processedBy } = req.body;
+            const { status } = req.body;
+            const processedBy = req.user.userId;
 
-            if (!status || !processedBy) {
-                return res.status(400).json({ success: false, error: 'status and processedBy are required' });
+            if (!status) {
+                return res.status(400).json({ success: false, error: 'status is required' });
             }
 
             const labOrder = await prisma.labOrder.update({
@@ -100,10 +102,11 @@ class LabController {
     async uploadResult(req, res) {
         try {
             const { labOrderId } = req.params;
-            const { resultSummary, resultFields, processedBy } = req.body;
+            const { resultSummary, resultFields } = req.body;
+            const processedBy = req.user.userId;
 
-            if (!resultSummary || !processedBy) {
-                return res.status(400).json({ success: false, error: 'resultSummary and processedBy are required' });
+            if (!resultSummary) {
+                return res.status(400).json({ success: false, error: 'resultSummary is required' });
             }
 
             let critical = false;
@@ -143,7 +146,13 @@ class LabController {
         try {
             const { patientId, doctorId, status } = req.query;
             const where = {};
-            if (patientId) where.patientId = patientId;
+            let finalPatientId = patientId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+
+            if (finalPatientId) where.patientId = finalPatientId;
             if (doctorId) where.doctorId = doctorId;
             if (status) where.status = status;
 

@@ -31,6 +31,9 @@ class IntakeController {
       } = req.body;
 
       let finalPatientId = patientId;
+      if (req.user.role === 'patient') {
+        finalPatientId = req.user.patientId;
+      }
 
       // 1. Prevent duplicate patients
       // Check if patient exists by ID
@@ -114,9 +117,15 @@ class IntakeController {
         LEFT JOIN users ud ON d.user_id = ud.id
       `;
       const params = [];
-      if (doctorId) {
+      let finalDoctorId = doctorId;
+
+      if (req.user.role === 'doctor') {
+        finalDoctorId = req.user.doctorId;
+      }
+
+      if (finalDoctorId) {
         query += ' WHERE itk.doctor_id = $1';
-        params.push(doctorId);
+        params.push(finalDoctorId);
       }
       query += ' ORDER BY itk.created_at DESC';
       const result = await db.query(query, params);
@@ -140,7 +149,8 @@ class IntakeController {
   async updateIntake(req, res) {
     try {
       const { id } = req.params;
-      const { changedBy, ...updatedFields } = req.body;
+      const { ...updatedFields } = req.body;
+      const changedBy = req.user.userId;
 
       const currentIntake = await db.query('SELECT * FROM patient_intakes WHERE id = $1', [id]);
       if (currentIntake.rows.length === 0) {

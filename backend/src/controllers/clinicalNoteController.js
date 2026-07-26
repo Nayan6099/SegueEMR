@@ -25,12 +25,14 @@ const mapClinicalNote = (note) => {
 class ClinicalNoteController {
     async createClinicalNote(req, res) {
         try {
-            const { appointmentId, patientId, doctorId, soapSubjective, soapObjective, soapAssessment, soapPlan, recordedBy } = req.body;
+            const { appointmentId, patientId, soapSubjective, soapObjective, soapAssessment, soapPlan } = req.body;
+            const doctorId = req.user.doctorId;
+            const recordedBy = req.user.userId;
 
-            if (!appointmentId || !patientId || !doctorId || !recordedBy) {
+            if (!appointmentId || !patientId || !doctorId) {
                 return res.status(400).json({
                     success: false,
-                    error: 'appointmentId, patientId, doctorId, and recordedBy are required'
+                    error: 'appointmentId and patientId are required'
                 });
             }
 
@@ -92,7 +94,13 @@ class ClinicalNoteController {
         try {
             const { patientId } = req.query;
             const where = {};
-            if (patientId) where.patientId = patientId;
+            let finalPatientId = patientId;
+
+            if (req.user.role === 'patient') {
+                finalPatientId = req.user.patientId;
+            }
+
+            if (finalPatientId) where.patientId = finalPatientId;
 
             const notes = await prisma.clinicalNote.findMany({
                 where,

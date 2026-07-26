@@ -3,11 +3,29 @@ import axios from 'axios';
 const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 const API_BASE_URL = `${API_ROOT}/ehr`;
 
+// Configure Axios request interceptor to attach JWT token
+axios.interceptors.request.use(
+  (config) => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('segue_token');
+      if (token) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 export interface User {
   userId: string;
   role: string;
   orgName: string;
   name?: string;
+  fullName?: string;
   status?: string;
 }
 
@@ -678,6 +696,12 @@ const api = {
 
   searchPatients: async (q: string): Promise<{ success: boolean; data: PatientRecord[] }> => {
     const response = await axios.get(`${API_ROOT}/intake/patients/search`, { params: { q } });
+    return response.data;
+  },
+
+  // --- Auth ---
+  login: async (userId: string, orgName: string, role: string, password?: string): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
+    const response = await axios.post(`${API_ROOT}/auth/login`, { userId, orgName, role, password });
     return response.data;
   },
 };

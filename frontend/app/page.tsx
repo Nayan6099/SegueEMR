@@ -261,8 +261,22 @@ function PatientPicker({ value, onChange, showDetailsFields = false, existingOnl
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loginForm, setLoginForm] = useState({ userId: '', role: '' });
+  const [loginForm, setLoginForm] = useState({ userId: '', role: '', password: '' });
   const [activeTab, setActiveTab] = useState('overview');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedUser = localStorage.getItem('segue_user');
+      if (storedUser) {
+        try {
+          setCurrentUser(JSON.parse(storedUser));
+        } catch (e) {
+          localStorage.removeItem('segue_user');
+          localStorage.removeItem('segue_token');
+        }
+      }
+    }
+  }, []);
 
   // States for data
   const [records, setRecords] = useState<EMRRecord[]>([]);
@@ -407,22 +421,39 @@ export default function Home() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loginForm.userId && loginForm.role) {
-      const userObj: User = {
-        userId: loginForm.userId,
-        role: loginForm.role,
-        orgName: loginForm.role === 'patient' ? 'patient' : 'hospital'
-      };
-      setCurrentUser(userObj);
-      showToast(`Logged in successfully as ${userObj.userId}`);
+    if (loginForm.userId && loginForm.role && loginForm.password) {
+      setLoading(true);
+      try {
+        const orgName = loginForm.role === 'patient' ? 'patient' : 'hospital';
+        const res = await api.login(loginForm.userId, orgName, loginForm.role, loginForm.password);
+        if (res.success && res.data) {
+          const { token, user } = res.data;
+          localStorage.setItem('segue_token', token);
+          localStorage.setItem('segue_user', JSON.stringify(user));
+          setCurrentUser(user);
+          showToast(`Logged in successfully as ${user.fullName || user.userId}`);
+        } else {
+          showToast(res.error || 'Login failed', true);
+        }
+      } catch (err: any) {
+        console.error('Login error', err);
+        const errMsg = err.response?.data?.error || err.message || 'Login failed';
+        showToast(errMsg, true);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      showToast('Please fill in all fields including password', true);
     }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('segue_token');
+    localStorage.removeItem('segue_user');
     setCurrentUser(null);
-    setLoginForm({ userId: '', role: '' });
+    setLoginForm({ userId: '', role: '', password: '' });
     // Reset data
     setRecords([]);
     setAppointments([]);
@@ -1279,6 +1310,21 @@ export default function Home() {
                   <option value="admin_staff">Administrative Staff</option>
                   <option value="management">Healthcare Management</option>
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={loginForm.password}
+                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none sm:text-sm"
+                />
               </div>
             </div>
 
