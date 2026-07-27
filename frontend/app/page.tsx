@@ -307,7 +307,7 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedCCDAFile, setSelectedCCDAFile] = useState<File | null>(null);
   const [grantAccessForm, setGrantAccessForm] = useState({ recordId: '', doctorId: '' });
-  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '', status: 'scheduled' });
+  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: 'DR-dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
   const [rxForm, setRxForm] = useState({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '' });
   const [vitalsHistory, setVitalsHistory] = useState<Vitals[]>([]);
   const [vitalsForm, setVitalsForm] = useState({ temperature: '', bloodPressure: '', pulse: '', spo2: '' });
@@ -883,7 +883,7 @@ export default function Home() {
         status: appointmentForm.status as any
       });
       showToast('Appointment successfully scheduled');
-      setAppointmentForm({ patientId: '', patientName: '', doctorId: '', doctorName: '', scheduledTime: '', notes: '', status: 'scheduled' });
+      setAppointmentForm({ patientId: '', patientName: '', doctorId: 'DR-dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
       setAppointmentPicker({
         isNew: false,
         patientId: '',
@@ -2886,16 +2886,7 @@ export default function Home() {
                         onChange={setAppointmentPicker}
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600">Doctor ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={appointmentForm.doctorId}
-                        onChange={(e) => setAppointmentForm({ ...appointmentForm, doctorId: e.target.value })}
-                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                    </div>
+
                     <div>
                       <label className="block text-xs font-semibold text-slate-600">Doctor Name</label>
                       <input
@@ -3164,17 +3155,6 @@ export default function Home() {
 
                       <div className="border-t border-slate-100 pt-3">
                         <h4 className="text-xs font-bold text-slate-700 uppercase mb-2">Assign Doctor &amp; Visit Details</h4>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600">Assign Physician ID</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="e.g. dr.smith"
-                            value={intakeForm.doctorId}
-                            onChange={(e) => setIntakeForm({ ...intakeForm, doctorId: e.target.value })}
-                            className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
-                          />
-                        </div>
                         <div className="mt-2">
                           <label className="block text-xs font-semibold text-slate-600">Reason for Visit</label>
                           <input

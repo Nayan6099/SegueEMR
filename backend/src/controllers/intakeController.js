@@ -246,6 +246,21 @@ class IntakeController {
         [patientId, name.trim(), dateOfBirth || null, gender || null, contactPhone || contactEmail || null]
       );
 
+      const prisma = require('../config/prisma');
+      try {
+        await prisma.patient.create({
+            data: {
+                id: patientId,
+                name: name.trim(),
+                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1970-01-01'),
+                gender: gender || 'Unknown',
+                contactInfo: contactPhone || contactEmail || null
+            }
+        });
+      } catch (err) {
+          console.error("Prisma sync patient error:", err.message);
+      }
+
       dataverseService.syncPatientToDataverse({
         id: patientId,
         name: name.trim(),
