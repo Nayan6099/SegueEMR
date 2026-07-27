@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 const API_BASE_URL = `${API_ROOT}/ehr`;
+const AUTH_BASE_URL = `${API_ROOT}/auth`;
 
 // Configure Axios request interceptor to attach JWT token
 axios.interceptors.request.use(
@@ -710,8 +711,23 @@ const api = {
   },
 
   // --- Auth ---
-  login: async (userId: string, orgName: string, role: string, password?: string): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
-    const response = await axios.post(`${API_ROOT}/auth/login`, { userId, orgName, role, password });
+  login: async (
+    userId: string,
+    orgName: string,
+    role: string,
+    password?: string
+  ): Promise<ApiResponse<{
+    token: string;
+    user: User & { patientId?: string; doctorId?: string }
+  }>> => {
+
+    const response = await axios.post(`${AUTH_BASE_URL}/login`, {
+      userId,
+      orgName,
+      role,
+      password
+    });
+
     return response.data;
   },
 

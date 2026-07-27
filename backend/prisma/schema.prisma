@@ -1,10 +1,10 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
 }
 
 model Setting {
@@ -24,17 +24,17 @@ model Medicine {
 }
 
 model User {
-  id           String    @id
-  username     String    @unique
-  passwordHash String    @map("password_hash")
-  email        String    @unique
+  id           String   @id
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  email        String   @unique
   role         String
-  fullName     String    @map("full_name")
-  status       String    @default("active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
-  patient      Patient?
+  fullName     String   @map("full_name")
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
   doctor       Doctor?
+  patient      Patient?
 
   @@map("users")
 }
@@ -42,7 +42,6 @@ model User {
 model Patient {
   id               String         @id
   userId           String?        @unique @map("user_id")
-  user             User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   name             String
   dateOfBirth      DateTime       @map("date_of_birth")
   gender           String
@@ -54,12 +53,13 @@ model Patient {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
   appointments     Appointment[]
-  prescriptions    Prescription[]
-  labOrders        LabOrder[]
-  invoices         Invoice[]
   clinicalNotes    ClinicalNote[]
-  vitals           Vitals[]
   ehrMetadata      EHRMetadata[]
+  invoices         Invoice[]
+  labOrders        LabOrder[]
+  prescriptions    Prescription[]
+  vitals           Vitals[]
+  user             User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("patients")
 }
@@ -67,7 +67,6 @@ model Patient {
 model Doctor {
   id              String         @id
   userId          String?        @unique @map("user_id")
-  user             User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   specialization  String
   licenseNumber   String         @unique @map("license_number")
@@ -75,9 +74,10 @@ model Doctor {
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @default(now()) @updatedAt @map("updated_at")
   appointments    Appointment[]
-  prescriptions   Prescription[]
-  labOrders       LabOrder[]
   clinicalNotes   ClinicalNote[]
+  labOrders       LabOrder[]
+  prescriptions   Prescription[]
+  user            User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("doctors")
 }
@@ -86,13 +86,13 @@ model EHRMetadata {
   id             String   @id @default(uuid())
   recordId       String   @unique
   patientId      String
-  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctorId       String
   orgName        String
   metadata       String
-  fhirResourceId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
+  fhirResourceId String?
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model ActivityLog {
@@ -107,36 +107,36 @@ model ActivityLog {
 model Appointment {
   id             String   @id @default(uuid())
   patientId      String
-  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientName    String?
   doctorId       String
-  doctor         Doctor   @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   doctorName     String?
   scheduledTime  DateTime
   status         String
   notes          String?
-  fhirResourceId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
+  fhirResourceId String?
+  doctor         Doctor   @relation(fields: [doctorId], references: [id])
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Prescription {
   id                  String       @id @default(uuid())
   patientId           String
-  patient             Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientName         String
   doctorId            String
-  doctor              Doctor       @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   doctorName          String?
   diagnosis           String?
   status              String       @default("pending")
   dispensedBy         String?
   dispensedAt         DateTime?
-  fhirResourceId      String?
-  externalReferenceId String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @default(now()) @updatedAt
+  fhirResourceId      String?
+  externalReferenceId String?
   medications         Medication[]
+  doctor              Doctor       @relation(fields: [doctorId], references: [id])
+  patient             Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Medication {
@@ -150,29 +150,28 @@ model Medication {
 }
 
 model LabOrder {
-  id                  String    @id @default(uuid())
+  id                  String   @id @default(uuid())
   patientId           String
-  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientName         String
   doctorId            String
-  doctor              Doctor    @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   testName            String
-  status              String    @default("pending")
+  status              String   @default("pending")
   notes               String?
   resultSummary       String?
-  critical            Boolean   @default(false)
+  critical            Boolean  @default(false)
   resultFields        String?
   processedBy         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
   fhirResourceId      String?
   externalReferenceId String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @default(now()) @updatedAt
+  doctor              Doctor   @relation(fields: [doctorId], references: [id])
+  patient             Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Invoice {
   id          String     @id @default(uuid())
   patientId   String
-  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   patientName String
   totalAmount Float      @default(0)
   status      String     @default("unpaid")
@@ -180,6 +179,7 @@ model Invoice {
   paidAt      DateTime?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @default(now()) @updatedAt
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   items       LineItem[]
 }
 
@@ -195,9 +195,7 @@ model ClinicalNote {
   id             String   @id @default(uuid())
   appointmentId  String   @unique
   patientId      String
-  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctorId       String
-  doctor         Doctor   @relation(fields: [doctorId], references: [id], onDelete: Restrict)
   soapSubjective String?
   soapObjective  String?
   soapAssessment String?
@@ -205,12 +203,13 @@ model ClinicalNote {
   recordedBy     String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
+  doctor         Doctor   @relation(fields: [doctorId], references: [id])
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Vitals {
   id            String   @id @default(uuid())
   patientId     String
-  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   appointmentId String
   temperature   Float?
   bloodPressure String?
@@ -218,6 +217,7 @@ model Vitals {
   spo2          Int?
   recordedBy    String
   createdAt     DateTime @default(now())
+  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Notification {

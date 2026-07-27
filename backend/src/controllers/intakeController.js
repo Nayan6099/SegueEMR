@@ -108,14 +108,15 @@ class IntakeController {
   async getIntakes(req, res) {
     try {
       const { doctorId } = req.query;
+
       let query = `
-        SELECT itk.*, up.full_name as patient_name, p.date_of_birth, p.gender, ud.full_name as doctor_name
+        SELECT itk.*, p.name as patient_name, p.date_of_birth, p.gender, ud.full_name as doctor_name
         FROM patient_intakes itk
         JOIN patients p ON itk.patient_id = p.id
-        JOIN users up ON p.user_id = up.id
         LEFT JOIN doctors d ON itk.doctor_id = d.id
         LEFT JOIN users ud ON d.user_id = ud.id
       `;
+
       const params = [];
       let finalDoctorId = doctorId;
 
@@ -127,10 +128,13 @@ class IntakeController {
         query += ' WHERE itk.doctor_id = $1';
         params.push(finalDoctorId);
       }
+
       query += ' ORDER BY itk.created_at DESC';
+
       const result = await db.query(query, params);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
+      console.error('[DB Error in getIntakes]:', err.message);
       return res.status(500).json({ success: false, error: err.message });
     }
   }

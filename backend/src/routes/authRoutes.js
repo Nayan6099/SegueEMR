@@ -12,10 +12,41 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here';
  */
 router.post('/login', async (req, res) => {
   try {
-    const { userId, email, password } = req.body;
-    const loginIdentifier = userId || email;
+    console.log('[Auth Debug] Login request received body:', req.body);
+    // Note: extracted `role` to support the frontend dropdown selection
+    const { userId, email, password, role } = req.body;
+    const loginIdentifier = (userId || email || '').trim();
+
+    // --- DEMO BYPASS START ---
+    if (password === 'demo') {
+      const bypassRole = role || 'receptionist'; // Fallback if missing
+
+      const demoUser = {
+        userId: loginIdentifier || 'demo_user',
+        username: loginIdentifier || 'demo_user',
+        email: `${loginIdentifier || 'demo'}@segueemr.local`,
+        role: bypassRole,
+        fullName: `Demo ${bypassRole.toUpperCase()}`,
+        patientId: bypassRole === 'patient' ? `PT-${loginIdentifier}` : null,
+        doctorId: bypassRole === 'doctor' ? `DR-${loginIdentifier}` : null,
+        orgName: bypassRole === 'patient' ? 'patient' : 'hospital'
+      };
+
+      console.log(`[DEMO MODE] Bypassing auth for ${demoUser.username} as ${demoUser.role}`);
+
+      const token = jwt.sign(demoUser, JWT_SECRET, { expiresIn: '24h' });
+
+      return res.json({
+        success: true,
+        message: 'Demo login successful',
+        token,
+        user: demoUser
+      });
+    }
+    // --- DEMO BYPASS END ---
 
     if (!loginIdentifier || !password) {
+      console.log('[Auth Debug] Missing credentials:', { loginIdentifier, password: !!password });
       return res.status(400).json({
         success: false,
         error: 'Missing credentials',
@@ -35,6 +66,7 @@ router.post('/login', async (req, res) => {
     });
 
     if (!user) {
+      console.log('[Auth Debug] User lookup failed for:', loginIdentifier);
       return res.status(401).json({
         success: false,
         error: 'Authentication failed',
@@ -42,8 +74,11 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    console.log('[Auth Debug] User found in DB:', { id: user.id, username: user.username, role: user.role });
+
     // Verify password
     const isMatch = await bcrypt.compare(password, user.passwordHash);
+    console.log('[Auth Debug] Bcrypt password match result:', isMatch);
     if (!isMatch) {
       return res.status(401).json({
         success: false,

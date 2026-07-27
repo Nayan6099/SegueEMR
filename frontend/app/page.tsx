@@ -373,7 +373,7 @@ export default function Home() {
 
   const [isRxPrefilled, setIsRxPrefilled] = useState(false);
   const [isLabPrefilled, setIsLabPrefilled] = useState(false);
-  
+
   // Intake Form
   const [intakeForm, setIntakeForm] = useState({
     patientId: '',
@@ -426,18 +426,35 @@ export default function Home() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loginForm.userId && loginForm.role && loginForm.password) {
+    console.log('1. Login handler function triggered');
+    const trimmedUserId = (loginForm.userId || '').trim();
+    if (trimmedUserId && loginForm.role && loginForm.password) {
       setLoading(true);
       try {
         const orgName = loginForm.role === 'patient' ? 'patient' : 'hospital';
-        const res = await api.login(loginForm.userId, orgName, loginForm.role, loginForm.password);
-        if (res.success && res.data) {
-          const { token, user } = res.data;
+        const res = await api.login(trimmedUserId, orgName, loginForm.role, loginForm.password) as any;
+        console.log('2. Axios API response received:', res);
+
+        // The backend returns success, token, and user at the top level, but the 
+        // original code expected them inside a `data` object (res.data).
+        const token = res.token || res.data?.token;
+        const user = res.user || res.data?.user;
+
+        if (res.success && token && user) {
           localStorage.setItem('segue_token', token);
           localStorage.setItem('segue_user', JSON.stringify(user));
+          console.log('3. Token localStorage storage successful:', { tokenSet: !!token });
+
+          console.log('4/5/6/7. Dashboard rendering approach:');
+          console.log('- No next/router or next/navigation router.push is executed.');
+          console.log('- App Router (app/page.tsx) is being used as a Single Page Application (SPA).');
+          console.log('- There is no separate /dashboard route.');
+          console.log('- Role-based conditions and dashboard UI are handled via state (currentUser).');
+
           setCurrentUser(user);
           showToast(`Logged in successfully as ${user.fullName || user.userId}`);
         } else {
+          console.log('Login failed: Response missing success, token, or user', res);
           showToast(res.error || 'Login failed', true);
         }
       } catch (err: any) {
@@ -738,11 +755,11 @@ export default function Home() {
       await api.updateIntake(id, { ...fields, changedBy: currentUser.userId });
       showToast('Intake record updated and changes audited');
       fetchData();
-      
+
       // Reload audit history
       const historyRes = await api.getIntakeAuditHistory(id);
       setAuditHistory(historyRes.data || []);
-      
+
       if (selectedIntake && selectedIntake.id === id) {
         setSelectedIntake((prev: any) => ({ ...prev, ...fields }));
       }
@@ -1289,6 +1306,12 @@ export default function Home() {
   if (!currentUser) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8">
+        {toast && (
+          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.isError ? 'bg-red-600' : 'bg-emerald-600'}`}>
+            {toast.isError ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+            <span>{toast.message}</span>
+          </div>
+        )}
         <div className="w-full max-w-md space-y-8 bg-white p-8 border border-slate-200 rounded-lg shadow-sm">
           <div className="text-center">
             <span className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-2xl">
@@ -1772,11 +1795,10 @@ export default function Home() {
                               <td className="px-4 py-3 text-sm text-slate-900 font-semibold">Dr. {apt.doctorName || apt.doctorId}</td>
                               <td className="px-4 py-3 text-sm text-slate-500">{new Date(apt.scheduledTime).toLocaleString()}</td>
                               <td className="px-4 py-3 text-sm">
-                                <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
-                                  apt.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                  apt.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
-                                  'bg-amber-50 text-amber-800 border-amber-200'
-                                }`}>
+                                <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${apt.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                    apt.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
+                                      'bg-amber-50 text-amber-800 border-amber-200'
+                                  }`}>
                                   {apt.status}
                                 </span>
                               </td>
@@ -1844,7 +1866,7 @@ export default function Home() {
                     <div className="flex items-center justify-between">
                       <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5"><AlertCircle className="h-5 w-5 text-indigo-600" /> Clinical Allergies</h2>
                     </div>
-                    
+
                     <form onSubmit={handleAddAllergy} className="bg-slate-50 p-4 border border-slate-200 rounded-lg grid grid-cols-1 gap-3 sm:grid-cols-3 items-end">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600">Allergen</label>
@@ -1896,11 +1918,10 @@ export default function Home() {
                               <p className="font-semibold text-slate-800">{alg.allergen}</p>
                               {alg.reaction && <p className="text-xs text-slate-500 mt-0.5">Reaction: {alg.reaction}</p>}
                             </div>
-                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
-                              alg.severity === 'severe' ? 'bg-red-50 text-red-800 border-red-200' :
-                              alg.severity === 'moderate' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                              'bg-slate-100 text-slate-800 border-slate-200'
-                            }`}>
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${alg.severity === 'severe' ? 'bg-red-50 text-red-800 border-red-200' :
+                                alg.severity === 'moderate' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                  'bg-slate-100 text-slate-800 border-slate-200'
+                              }`}>
                               {alg.severity}
                             </span>
                           </div>
@@ -1912,7 +1933,7 @@ export default function Home() {
                   {/* Conditions/Problems panel */}
                   <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm space-y-4">
                     <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5"><Shield className="h-5 w-5 text-indigo-600" /> Active Medical Problems</h2>
-                    
+
                     <form onSubmit={handleAddProblem} className="bg-slate-50 p-4 border border-slate-200 rounded-lg grid grid-cols-1 gap-3 sm:grid-cols-3 items-end">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600">ICD-10 Code</label>
@@ -2021,11 +2042,10 @@ export default function Home() {
                             <p className="font-semibold text-slate-800">Prescription: {req.prescription_id}</p>
                             {req.notes && <p className="text-sm text-slate-500 mt-1">Notes: {req.notes}</p>}
                           </div>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
-                            req.status === 'approved' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                            req.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-200' :
-                            'bg-amber-50 text-amber-800 border-amber-200'
-                          }`}>
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${req.status === 'approved' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                              req.status === 'rejected' ? 'bg-red-50 text-red-800 border-red-200' :
+                                'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}>
                             {req.status}
                           </span>
                         </div>
@@ -2109,9 +2129,8 @@ export default function Home() {
                             <td className="px-4 py-3 text-sm font-mono text-slate-700">{inv.id.substring(0, 12)}...</td>
                             <td className="px-4 py-3 text-sm text-slate-900 font-semibold">${inv.amount.toFixed(2)}</td>
                             <td className="px-4 py-3 text-sm">
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${
-                                inv.status === 'paid' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
-                              }`}>
+                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${inv.status === 'paid' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+                                }`}>
                                 {inv.status}
                               </span>
                             </td>
@@ -2143,7 +2162,7 @@ export default function Home() {
                 <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm h-fit space-y-4">
                   <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-1.5"><Lock className="h-5 w-5 text-indigo-600" /> Generate Third-Party API Key</h2>
                   <p className="text-xs text-slate-500">Provide developers or integrations with access to sync data via the portal SDK API.</p>
-                  
+
                   <form onSubmit={handleGenerateApiKey} className="space-y-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600">Application Name</label>
@@ -2583,20 +2602,18 @@ export default function Home() {
                               setSelectedIntake(itk);
                               handleFetchAuditHistory(itk.id);
                             }}
-                            className={`p-4 border rounded-lg cursor-pointer transition flex items-center justify-between ${
-                              selectedIntake?.id === itk.id ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
-                            }`}
+                            className={`p-4 border rounded-lg cursor-pointer transition flex items-center justify-between ${selectedIntake?.id === itk.id ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50'
+                              }`}
                           >
                             <div>
                               <p className="font-semibold text-slate-900">{itk.patient_name}</p>
                               <p className="text-xs text-slate-500 mt-0.5">ID: {itk.patient_id}</p>
                               <p className="text-xs text-slate-400 mt-1 font-mono">{new Date(itk.created_at).toLocaleTimeString()}</p>
                             </div>
-                            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${
-                              itk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                              itk.status === 'in_consultation' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                              'bg-amber-50 text-amber-800 border-amber-200'
-                            }`}>
+                            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${itk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                itk.status === 'in_consultation' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                                  'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}>
                               {itk.status}
                             </span>
                           </div>
@@ -3254,11 +3271,10 @@ export default function Home() {
                                   <td className="px-4 py-3 font-semibold text-slate-900">{itk.patient_name}</td>
                                   <td className="px-4 py-3 text-slate-500">{itk.reason_for_visit}</td>
                                   <td className="px-4 py-3">
-                                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${
-                                      itk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                      itk.status === 'in_consultation' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                                      'bg-amber-50 text-amber-800 border-amber-200'
-                                    }`}>
+                                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${itk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                        itk.status === 'in_consultation' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                                          'bg-amber-50 text-amber-800 border-amber-200'
+                                      }`}>
                                       {itk.status}
                                     </span>
                                   </td>
@@ -3642,7 +3658,7 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
                   ⚙️ System Settings
                 </h2>
-                
+
                 {systemSettings.length === 0 ? (
                   <p className="text-xs text-slate-400">No active system configuration settings saved.</p>
                 ) : (
@@ -3863,7 +3879,7 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-slate-900 border-b pb-2 flex items-center gap-1.5">
                   🔐 Access Rules Config
                 </h2>
-                
+
                 <div className="space-y-4">
                   {orgDetails?.accessRules?.map((rule: any) => (
                     <div key={rule.role} className="text-xs space-y-1">
