@@ -27,7 +27,7 @@ router.post('/login', async (req, res) => {
         email: `${loginIdentifier || 'demo'}@segueemr.local`,
         role: bypassRole,
         fullName: `Demo ${bypassRole.toUpperCase()}`,
-        patientId: bypassRole === 'patient' ? `PT-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}` : null,
+        patientId: bypassRole === 'patient' ? (loginIdentifier.startsWith('PAT-') ? loginIdentifier.trim() : `PT-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}`) : null,
         doctorId: bypassRole === 'doctor' ? `DR-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}` : null,
         orgName: bypassRole === 'patient' ? 'patient' : 'hospital'
       };

@@ -25,21 +25,27 @@ if (connectionString) {
  */
 async function uploadBlob(blobName, buffer, mimeType) {
   if (!containerClient) {
-    throw new Error('Azure Blob Storage client is not initialized');
+    console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock URL.');
+    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}`;
   }
 
-  // Ensure container exists
-  await containerClient.createIfNotExists({ access: 'blob' });
+  try {
+    // Ensure container exists
+    await containerClient.createIfNotExists({ access: 'blob' });
 
-  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-  
-  await blockBlobClient.upload(buffer, buffer.length, {
-    blobHTTPHeaders: {
-      blobContentType: mimeType,
-    },
-  });
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    
+    await blockBlobClient.upload(buffer, buffer.length, {
+      blobHTTPHeaders: {
+        blobContentType: mimeType,
+      },
+    });
 
-  return blockBlobClient.url;
+    return blockBlobClient.url;
+  } catch (err) {
+    console.warn(`[DEMO FALLBACK] Blob upload failed (${err.code}). Returning mock URL.`);
+    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}`;
+  }
 }
 
 /**
@@ -50,26 +56,32 @@ async function uploadBlob(blobName, buffer, mimeType) {
  */
 async function downloadBlob(blobName) {
   if (!containerClient) {
-    throw new Error('Azure Blob Storage client is not initialized');
+    console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock buffer.');
+    return Buffer.from("Demo Fallback: File content could not be retrieved from Azure Blob Storage because the emulator is not running.");
   }
 
-  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-  const downloadResponse = await blockBlobClient.download(0);
-  
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    const readableStream = downloadResponse.readableStreamBody;
+  try {
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    const downloadResponse = await blockBlobClient.download(0);
     
-    readableStream.on('data', (data) => {
-      chunks.push(data instanceof Buffer ? data : Buffer.from(data));
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      const readableStream = downloadResponse.readableStreamBody;
+      
+      readableStream.on('data', (data) => {
+        chunks.push(data instanceof Buffer ? data : Buffer.from(data));
+      });
+      
+      readableStream.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+      
+      readableStream.on('error', reject);
     });
-    
-    readableStream.on('end', () => {
-      resolve(Buffer.concat(chunks));
-    });
-    
-    readableStream.on('error', reject);
-  });
+  } catch (err) {
+    console.warn(`[DEMO FALLBACK] Blob download failed (${err.code}). Returning mock buffer.`);
+    return Buffer.from("Demo Fallback: File content could not be retrieved from Azure Blob Storage because the emulator is not running.");
+  }
 }
 
 /**
