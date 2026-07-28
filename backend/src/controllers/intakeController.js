@@ -81,7 +81,7 @@ class IntakeController {
           if (!finalPatientId) finalPatientId = generateId('PAT');
 
           await db.query(
-            'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
+            'INSERT INTO patients (id, name, date_of_birth, gender, contact_info, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())',
             [finalPatientId, name, validDob, gender || null, contactPhone || contactEmail || null]
           );
 
@@ -324,7 +324,7 @@ class IntakeController {
       }
 
       await db.query(
-        'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
+        'INSERT INTO patients (id, name, date_of_birth, gender, contact_info, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())',
         [patientId, name.trim(), validDob, gender || null, contactPhone || contactEmail || null]
       );
 

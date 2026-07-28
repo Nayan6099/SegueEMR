@@ -28,7 +28,7 @@ router.post('/login', async (req, res) => {
         role: bypassRole,
         fullName: `Demo ${bypassRole.toUpperCase()}`,
         patientId: bypassRole === 'patient' ? (loginIdentifier.startsWith('PAT-') ? loginIdentifier.trim() : `PT-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}`) : null,
-        doctorId: bypassRole === 'doctor' ? `DR-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}` : null,
+        doctorId: bypassRole === 'doctor' ? loginIdentifier.replace(/\s+/g, '').toLowerCase() : null,
         orgName: bypassRole === 'patient' ? 'patient' : 'hospital'
       };
 

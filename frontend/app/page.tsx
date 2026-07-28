@@ -625,7 +625,7 @@ export default function Home() {
       setSelectedFile(null);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Upload failed', true);
+      showToast(error.response?.data?.error || error.message || 'Upload failed', true);
     } finally {
       setLoading(false);
     }
@@ -640,7 +640,7 @@ export default function Home() {
       setGrantAccessForm({ recordId: '', doctorId: '' });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -653,7 +653,7 @@ export default function Home() {
       setAllergyForm({ allergen: '', severity: 'mild', reaction: '' });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -666,7 +666,7 @@ export default function Home() {
       setProblemForm({ code: '', description: '', onsetDate: '' });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -732,7 +732,7 @@ export default function Home() {
       });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Check-in failed', true);
+      showToast(error.response?.data?.error || error.message || 'Check-in failed', true);
     }
   };
 
@@ -745,7 +745,7 @@ export default function Home() {
         setSelectedIntake((prev: any) => ({ ...prev, status }));
       }
     } catch (error: any) {
-      showToast(error.message || 'Status update failed', true);
+      showToast(error.response?.data?.error || error.message || 'Status update failed', true);
     }
   };
 
@@ -764,7 +764,7 @@ export default function Home() {
         setSelectedIntake((prev: any) => ({ ...prev, ...fields }));
       }
     } catch (error: any) {
-      showToast(error.message || 'Update failed', true);
+      showToast(error.response?.data?.error || error.message || 'Update failed', true);
     }
   };
 
@@ -773,7 +773,7 @@ export default function Home() {
       const res = await api.getIntakeAuditHistory(id);
       setAuditHistory(res.data || []);
     } catch (error: any) {
-      showToast(error.message || 'Failed to fetch history logs', true);
+      showToast(error.response?.data?.error || error.message || 'Failed to fetch history logs', true);
     }
   };
 
@@ -785,7 +785,7 @@ export default function Home() {
       setRefillForm({ prescriptionId: '', notes: '' });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -797,7 +797,7 @@ export default function Home() {
       setChatInput('');
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -811,7 +811,7 @@ export default function Home() {
       setKeyForm({ name: '', durationDays: 30 });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -832,7 +832,7 @@ export default function Home() {
       setSelectedCCDAFile(null);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Import failed', true);
+      showToast(error.response?.data?.error || error.message || 'Import failed', true);
     } finally {
       setLoading(false);
     }
@@ -845,7 +845,7 @@ export default function Home() {
       showToast(`Access revoked from Dr. ${doctorId}`);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -895,7 +895,7 @@ export default function Home() {
       });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -905,7 +905,7 @@ export default function Home() {
       showToast(`Appointment status updated to ${status}`);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -959,7 +959,7 @@ export default function Home() {
       setIsRxPrefilled(false);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -970,7 +970,7 @@ export default function Home() {
       showToast('Prescription successfully marked as dispensed');
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1040,7 +1040,7 @@ export default function Home() {
         setVitalsHistory(res.data);
       }
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1060,7 +1060,7 @@ export default function Home() {
       });
       showToast('Clinical SOAP Note successfully saved');
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1081,7 +1081,7 @@ export default function Home() {
         setMedicines(res.data);
       }
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1096,7 +1096,7 @@ export default function Home() {
         setSystemSettings(res.data);
       }
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1112,7 +1112,7 @@ export default function Home() {
         setOrgDetails(orgRes.data.org);
       }
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1133,7 +1133,7 @@ export default function Home() {
         setOrgDetails(orgRes.data.org);
       }
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1155,7 +1155,7 @@ export default function Home() {
       setLabResultsForm({ resultSummary: '', cholesterol: '', hemoglobin: '', glucose: '' });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1208,7 +1208,7 @@ export default function Home() {
       setIsLabPrefilled(false);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1219,7 +1219,7 @@ export default function Home() {
       showToast(`Lab order status updated to ${status}`);
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1270,7 +1270,7 @@ export default function Home() {
       });
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
@@ -1281,7 +1281,7 @@ export default function Home() {
       showToast('Invoice marked as paid');
       fetchData();
     } catch (error: any) {
-      showToast(error.message || 'Action failed', true);
+      showToast(error.response?.data?.error || error.message || 'Action failed', true);
     }
   };
 
