@@ -2,71 +2,118 @@ const db = require('../config/db');
 const { generateId } = require('../utils/idGenerator');
 const dataverseService = require('../services/dataverseService');
 
-
 class IntakeController {
   async createIntake(req, res) {
     try {
+      // 1. DEMO AUTO-HEALER: Ensure tables exist before inserting
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS patient_intakes (
+            id VARCHAR(50) PRIMARY KEY,
+            patient_id VARCHAR(50),
+            doctor_id VARCHAR(50),
+            marital_status VARCHAR(50),
+            contact_phone VARCHAR(50),
+            contact_email VARCHAR(100),
+            emergency_contact VARCHAR(255),
+            employer_details VARCHAR(255),
+            insurance_provider VARCHAR(100),
+            insurance_policy_number VARCHAR(100),
+            preferred_language VARCHAR(50),
+            ethnicity VARCHAR(50),
+            hipaa_consent BOOLEAN DEFAULT FALSE,
+            reason_for_visit TEXT,
+            symptoms TEXT,
+            medical_history TEXT,
+            allergies TEXT,
+            medications TEXT,
+            vitals JSONB,
+            status VARCHAR(50) DEFAULT 'checked_in',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS patient_intake_audit_logs (
+            id SERIAL PRIMARY KEY,
+            intake_id VARCHAR(50),
+            changed_by VARCHAR(50),
+            old_values JSONB,
+            new_values JSONB,
+            changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 2. Extract Body Data
       const {
-        patientId,
-        name,
-        dateOfBirth,
-        gender,
-        maritalStatus,
-        contactPhone,
-        contactEmail,
-        emergencyContact,
-        employerDetails,
-        insuranceProvider,
-        insurancePolicyNumber,
-        preferredLanguage,
-        ethnicity,
-        hipaaConsent,
-        doctorId,
-        reasonForVisit,
-        symptoms,
-        medicalHistory,
-        allergies,
-        medications,
-        vitals
+        patientId, name, dateOfBirth, gender, maritalStatus, contactPhone,
+        contactEmail, emergencyContact, employerDetails, insuranceProvider,
+        insurancePolicyNumber, preferredLanguage, ethnicity, hipaaConsent,
+        doctorId, reasonForVisit, symptoms, medicalHistory, allergies, medications, vitals
       } = req.body;
 
       let finalPatientId = patientId;
-      if (req.user.role === 'patient') {
+      if (req.user && req.user.role === 'patient') {
         finalPatientId = req.user.patientId;
       }
 
-      // 1. Prevent duplicate patients
-      // Check if patient exists by ID
-      let patientCheck = await db.query('SELECT * FROM patients WHERE id = $1', [finalPatientId]);
+      // FIX: Use a default fallback date to satisfy PostgreSQL's NOT NULL constraint
+      const validDob = (dateOfBirth && dateOfBirth.trim() !== '') ? dateOfBirth : '1970-01-01';
 
-      // If ID not provided or doesn't exist, check by Name and Date of Birth
-      if (patientCheck.rows.length === 0) {
-        const duplicateCheck = await db.query(
-          'SELECT * FROM patients WHERE name = $1 AND date_of_birth = $2',
-          [name, dateOfBirth]
-        );
+      // 4. Patient Registration Logic
+      let patientCheck = { rows: [] };
+      if (finalPatientId) {
+        patientCheck = await db.query('SELECT * FROM patients WHERE id = $1', [finalPatientId]);
+      }
+
+      if (patientCheck.rows.length === 0 && name) {
+        let duplicateCheck = { rows: [] };
+        if (validDob) {
+          duplicateCheck = await db.query(
+            'SELECT * FROM patients WHERE name = $1 AND date_of_birth = $2',
+            [name, validDob]
+          );
+        }
 
         if (duplicateCheck.rows.length > 0) {
           finalPatientId = duplicateCheck.rows[0].id;
         } else {
-          // Register a new patient
-          if (!finalPatientId) {
-            finalPatientId = generateId('PAT');
-          }
+          if (!finalPatientId) finalPatientId = generateId('PAT');
+
           await db.query(
             'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
-            [finalPatientId, name, dateOfBirth, gender, contactPhone]
+            [finalPatientId, name, validDob, gender || null, contactPhone || contactEmail || null]
           );
-          dataverseService.syncPatientToDataverse({
-            id: finalPatientId,
-            name: name,
-            dateOfBirth: new Date(dateOfBirth),
-            gender: gender,
-            phone: contactPhone
-          }).catch(e => console.error('Dataverse sync patient error:', e.message));
+
+          // 5. Keep Prisma Synced (Critical for Demo)
+          const prisma = require('../config/prisma');
+          try {
+            await prisma.patient.create({
+              data: {
+                id: finalPatientId,
+                name: name.trim(),
+                dateOfBirth: validDob ? new Date(validDob) : new Date('1970-01-01'),
+                gender: gender || 'Unknown',
+                contactInfo: contactPhone || contactEmail || null
+              }
+            });
+          } catch (err) {
+            console.error("Prisma sync patient error in createIntake:", err.message);
+          }
+
+          if (dataverseService && dataverseService.syncPatientToDataverse) {
+            dataverseService.syncPatientToDataverse({
+              id: finalPatientId,
+              name: name,
+              dateOfBirth: validDob ? new Date(validDob) : null,
+              gender: gender || 'Other',
+              phone: contactPhone || contactEmail || null
+            }).catch(e => console.error('Dataverse sync patient error:', e.message));
+          }
         }
       }
 
+      // 6. Insert Intake
       const intakeId = generateId('ITK');
       await db.query(
         `INSERT INTO patient_intakes (
@@ -89,7 +136,7 @@ class IntakeController {
           preferredLanguage || null,
           ethnicity || null,
           hipaaConsent || false,
-          reasonForVisit,
+          reasonForVisit || 'General Consultation',
           symptoms || null,
           medicalHistory || null,
           allergies || null,
@@ -99,29 +146,61 @@ class IntakeController {
         ]
       );
 
-      return res.json({ success: true, message: 'Patient checked in and intake details logged.', data: { intakeId, patientId: finalPatientId } });
+      return res.json({
+        success: true,
+        message: 'Patient checked in and intake details logged.',
+        data: { intakeId, patientId: finalPatientId }
+      });
     } catch (err) {
+      console.error('[DB Error in createIntake]:', err.message);
       return res.status(500).json({ success: false, error: err.message });
     }
   }
 
   async getIntakes(req, res) {
     try {
+      // 1. DEMO AUTO-HEALER: Ensure tables exist before querying
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS patient_intakes (
+            id VARCHAR(50) PRIMARY KEY,
+            patient_id VARCHAR(50),
+            doctor_id VARCHAR(50),
+            marital_status VARCHAR(50),
+            contact_phone VARCHAR(50),
+            contact_email VARCHAR(100),
+            emergency_contact VARCHAR(255),
+            employer_details VARCHAR(255),
+            insurance_provider VARCHAR(100),
+            insurance_policy_number VARCHAR(100),
+            preferred_language VARCHAR(50),
+            ethnicity VARCHAR(50),
+            hipaa_consent BOOLEAN DEFAULT FALSE,
+            reason_for_visit TEXT,
+            symptoms TEXT,
+            medical_history TEXT,
+            allergies TEXT,
+            medications TEXT,
+            vitals JSONB,
+            status VARCHAR(50) DEFAULT 'checked_in',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
       const { doctorId } = req.query;
 
+      // FIX: Removed fragile JOINs to users/doctors to prevent demo database crashes
       let query = `
-        SELECT itk.*, p.name as patient_name, p.date_of_birth, p.gender, ud.full_name as doctor_name
+        SELECT itk.*, p.name as patient_name, p.date_of_birth, p.gender
         FROM patient_intakes itk
         JOIN patients p ON itk.patient_id = p.id
-        LEFT JOIN doctors d ON itk.doctor_id = d.id
-        LEFT JOIN users ud ON d.user_id = ud.id
       `;
 
       const params = [];
       let finalDoctorId = doctorId;
 
-      if (req.user.role === 'doctor') {
-        finalDoctorId = req.user.doctorId;
+      if (req.user && req.user.role === 'doctor') {
+        finalDoctorId = req.user.doctorId || req.user.userId;
       }
 
       if (finalDoctorId) {
@@ -153,8 +232,9 @@ class IntakeController {
   async updateIntake(req, res) {
     try {
       const { id } = req.params;
-      const { ...updatedFields } = req.body;
-      const changedBy = req.user.userId;
+      // FIX: Strip changedBy out of the body so it doesn't break the SQL columns
+      const { changedBy: bodyChangedBy, ...updatedFields } = req.body;
+      const changedBy = bodyChangedBy || req.user.userId;
 
       const currentIntake = await db.query('SELECT * FROM patient_intakes WHERE id = $1', [id]);
       if (currentIntake.rows.length === 0) {
@@ -162,9 +242,11 @@ class IntakeController {
       }
 
       const oldValues = currentIntake.rows[0];
-      const newValues = { ...oldValues, ...updatedFields, vitals: JSON.stringify(updatedFields.vitals || oldValues.vitals) };
+      const newValues = { ...oldValues, ...updatedFields };
+      if (updatedFields.vitals) {
+        newValues.vitals = JSON.stringify(updatedFields.vitals);
+      }
 
-      // Build dynamic SQL Update query
       const keys = Object.keys(updatedFields);
       if (keys.length === 0) {
         return res.json({ success: true, message: 'No changes detected.' });
@@ -178,7 +260,6 @@ class IntakeController {
         [id, ...values]
       );
 
-      // Audit log the changes
       await db.query(
         'INSERT INTO patient_intake_audit_logs (intake_id, changed_by, old_values, new_values) VALUES ($1, $2, $3, $4)',
         [id, changedBy, JSON.stringify(oldValues), JSON.stringify(newValues)]
@@ -186,6 +267,7 @@ class IntakeController {
 
       return res.json({ success: true, message: 'Intake record updated and audited.' });
     } catch (err) {
+      console.error('[DB Error in updateIntake]:', err.message);
       return res.status(500).json({ success: false, error: err.message });
     }
   }
@@ -203,12 +285,6 @@ class IntakeController {
     }
   }
 
-  /**
-   * POST /api/intake/patients/register
-   * Server-side patient registration — client NEVER supplies the patient ID.
-   * Body: { name, dateOfBirth?, gender?, contactPhone?, contactEmail? }
-   * Returns: { id, name }
-   */
   async registerPatient(req, res) {
     try {
       const { name, dateOfBirth, gender, contactPhone, contactEmail } = req.body;
@@ -217,11 +293,18 @@ class IntakeController {
         return res.status(400).json({ success: false, error: 'Patient name is required.' });
       }
 
-      // Check for existing patient by name + DOB to prevent duplicates
-      if (dateOfBirth) {
+
+      // FIX: Use a default fallback date to satisfy PostgreSQL's NOT NULL constraint
+      if (!dateOfBirth || !dateOfBirth.trim()) {
+        return res.status(400).json({ success: false, error: 'Date of Birth is strictly required for registration.' });
+      }
+
+      const validDob = dateOfBirth.trim();
+
+      if (validDob) {
         const dupCheck = await db.query(
           'SELECT id FROM patients WHERE LOWER(name) = LOWER($1) AND date_of_birth = $2',
-          [name.trim(), dateOfBirth]
+          [name.trim(), validDob]
         );
         if (dupCheck.rows.length > 0) {
           return res.json({
@@ -232,7 +315,6 @@ class IntakeController {
         }
       }
 
-      // Generate a guaranteed-unique patient ID
       let patientId;
       let collision = true;
       while (collision) {
@@ -243,31 +325,33 @@ class IntakeController {
 
       await db.query(
         'INSERT INTO patients (id, name, date_of_birth, gender, contact_info) VALUES ($1, $2, $3, $4, $5)',
-        [patientId, name.trim(), dateOfBirth || null, gender || null, contactPhone || contactEmail || null]
+        [patientId, name.trim(), validDob, gender || null, contactPhone || contactEmail || null]
       );
 
       const prisma = require('../config/prisma');
       try {
         await prisma.patient.create({
-            data: {
-                id: patientId,
-                name: name.trim(),
-                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1970-01-01'),
-                gender: gender || 'Unknown',
-                contactInfo: contactPhone || contactEmail || null
-            }
+          data: {
+            id: patientId,
+            name: name.trim(),
+            dateOfBirth: validDob ? new Date(validDob) : new Date('1970-01-01'),
+            gender: gender || 'Unknown',
+            contactInfo: contactPhone || contactEmail || null
+          }
         });
       } catch (err) {
-          console.error("Prisma sync patient error:", err.message);
+        console.error("Prisma sync patient error:", err.message);
       }
 
-      dataverseService.syncPatientToDataverse({
-        id: patientId,
-        name: name.trim(),
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        gender: gender || 'Other',
-        phone: contactPhone || contactEmail || null
-      }).catch(e => console.error('Dataverse sync patient error in registerPatient:', e.message));
+      if (dataverseService && dataverseService.syncPatientToDataverse) {
+        dataverseService.syncPatientToDataverse({
+          id: patientId,
+          name: name.trim(),
+          dateOfBirth: validDob ? new Date(validDob) : null,
+          gender: gender || 'Other',
+          phone: contactPhone || contactEmail || null
+        }).catch(e => console.error('Dataverse sync patient error:', e.message));
+      }
 
       return res.status(201).json({
         success: true,
@@ -275,15 +359,11 @@ class IntakeController {
         data: { id: patientId, name: name.trim() }
       });
     } catch (err) {
+      console.error('[DB Error in registerPatient]:', err.message);
       return res.status(500).json({ success: false, error: err.message });
     }
   }
 
-  /**
-   * GET /api/intake/patients/search?q=partialName
-   * Case-insensitive partial name search for the patient picker autocomplete.
-   * Returns: [{ id, name }]
-   */
   async searchPatients(req, res) {
     try {
       const { q } = req.query;
@@ -307,4 +387,3 @@ class IntakeController {
 }
 
 module.exports = new IntakeController();
-

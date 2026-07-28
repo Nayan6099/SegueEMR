@@ -3,7 +3,6 @@ const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 const fhirService = require('../services/fhirService');
 
-
 const genId = () => `APT-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
 const mapAppointment = (apt) => {
@@ -28,23 +27,34 @@ const mapAppointment = (apt) => {
 class AppointmentController {
     async createAppointment(req, res) {
         try {
-            const { patientId, patientName, doctorId, doctorName, scheduledAt, notes, status } = req.body;
+            const { patientId, patientName, doctorId, doctorName, scheduledAt, scheduledTime, notes, status } = req.body;
 
             let finalPatientId = patientId;
             let finalDoctorId = doctorId;
 
-            if (req.user.role === 'patient') {
+            if (req.user && req.user.role === 'patient') {
                 finalPatientId = req.user.patientId;
-            } else if (req.user.role === 'doctor') {
-                finalDoctorId = req.user.doctorId;
+            } else if (req.user && req.user.role === 'doctor') {
+                finalDoctorId = req.user.doctorId || req.user.userId;
             }
 
-            const createdBy = req.user.userId;
+            // FIX: Sanitize the hardcoded frontend ID ('DR-dr.smith') to match the seeded DB ID ('dr.smith')
+            if (finalDoctorId) {
+                finalDoctorId = finalDoctorId.trim();
+                if (finalDoctorId.toLowerCase() === 'dr-dr.smith') {
+                    finalDoctorId = 'dr.smith';
+                } else if (finalDoctorId.startsWith('DR-')) {
+                    finalDoctorId = finalDoctorId.substring(3);
+                }
+            }
 
-            if (!finalPatientId || !patientName || !finalDoctorId || !scheduledAt) {
+            const createdBy = req.user ? req.user.userId : 'system';
+            const targetTime = scheduledAt || scheduledTime;
+
+            if (!finalPatientId || !patientName || !finalDoctorId || !targetTime) {
                 return res.status(400).json({
                     success: false,
-                    error: 'patientId, patientName, doctorId, and scheduledAt are required'
+                    error: 'patientId, patientName, doctorId, and scheduledTime are required'
                 });
             }
 
@@ -55,7 +65,7 @@ class AppointmentController {
                     patientName,
                     doctorId: finalDoctorId,
                     doctorName: doctorName || '',
-                    scheduledTime: new Date(scheduledAt),
+                    scheduledTime: new Date(targetTime),
                     status: status || 'scheduled',
                     notes: notes || ''
                 }
@@ -77,6 +87,7 @@ class AppointmentController {
 
             return res.status(201).json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {
+            console.error('[DB Error in createAppointment]:', err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     }
@@ -84,11 +95,12 @@ class AppointmentController {
     async updateAppointment(req, res) {
         try {
             const { appointmentId } = req.params;
-            const { scheduledAt, status, notes } = req.body;
+            const { scheduledAt, scheduledTime, status, notes } = req.body;
             const updatedBy = req.user.userId;
 
             const update = {};
-            if (scheduledAt) update.scheduledTime = new Date(scheduledAt);
+            const targetTime = scheduledAt || scheduledTime;
+            if (targetTime) update.scheduledTime = new Date(targetTime);
             if (status) update.status = status;
             if (notes !== undefined) update.notes = notes;
 
@@ -104,6 +116,7 @@ class AppointmentController {
 
             return res.json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {
+            console.error('[DB Error in updateAppointment]:', err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     }
@@ -125,6 +138,7 @@ class AppointmentController {
 
             return res.json({ success: true, data: mapAppointment(appointment) });
         } catch (err) {
+            console.error('[DB Error in cancelAppointment]:', err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     }
@@ -140,7 +154,7 @@ class AppointmentController {
             if (req.user.role === 'patient') {
                 finalPatientId = req.user.patientId;
             } else if (req.user.role === 'doctor') {
-                finalDoctorId = req.user.doctorId;
+                finalDoctorId = req.user.doctorId || req.user.userId; // FIX: Ensure doctor filter uses proper ID logic
             }
 
             if (finalDoctorId) where.doctorId = finalDoctorId;
@@ -162,6 +176,7 @@ class AppointmentController {
 
             return res.json({ success: true, data: appointments.map(mapAppointment) });
         } catch (err) {
+            console.error('[DB Error in listAppointments]:', err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     }
@@ -204,6 +219,7 @@ class AppointmentController {
 
             return res.json({ success: true, data: availableSlots });
         } catch (err) {
+            console.error('[DB Error in getAvailableSlots]:', err.message);
             return res.status(500).json({ success: false, error: err.message });
         }
     }

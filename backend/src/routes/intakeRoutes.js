@@ -15,7 +15,7 @@ router.post('/', requireRole('receptionist', 'nurse', 'doctor', 'patient'), inta
 router.get('/', requireRole('receptionist', 'nurse', 'doctor'), intakeController.getIntakes);
 router.put('/:id', requireRole('receptionist', 'nurse', 'doctor'), intakeController.updateIntake);
 router.put('/:id/status', requireRole('receptionist', 'nurse', 'doctor'), intakeController.updateIntakeStatus);
-router.get('/:id/history', requireRole('admin_staff', 'admin'), intakeController.getAuditHistory);
+router.get('/:id/history', requireRole('receptionist', 'nurse', 'doctor', 'admin_staff', 'admin'), intakeController.getAuditHistory);
 
 module.exports = router;
 
