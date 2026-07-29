@@ -3,10 +3,10 @@ const prisma = require('../config/prisma');
 class NotificationController {
   async listNotifications(req, res) {
     try {
-      const recipientId = req.user.userId;
+      const userId = req.user.userId;
       
       const notifications = await prisma.notification.findMany({
-        where: { recipientId },
+        where: { userId },
         orderBy: { createdAt: 'desc' }
       });
 
@@ -20,13 +20,26 @@ class NotificationController {
     }
   }
 
+  async getUnreadCount(req, res) {
+    try {
+      const userId = req.user.userId;
+      const count = await prisma.notification.count({
+        where: { userId, isRead: false }
+      });
+      return res.json({ success: true, count });
+    } catch (err) {
+      console.error('[Notifications] Get unread count error:', err.message);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
   async markRead(req, res) {
     try {
       const { id } = req.params;
-      const recipientId = req.user.userId;
+      const userId = req.user.userId;
 
       const notification = await prisma.notification.findFirst({
-        where: { id, recipientId }
+        where: { id, userId }
       });
 
       if (!notification) {
@@ -35,7 +48,7 @@ class NotificationController {
 
       const updated = await prisma.notification.update({
         where: { id },
-        data: { read: true }
+        data: { isRead: true }
       });
 
       return res.json({
@@ -51,11 +64,11 @@ class NotificationController {
 
   async markAllRead(req, res) {
     try {
-      const recipientId = req.user.userId;
+      const userId = req.user.userId;
 
       await prisma.notification.updateMany({
-        where: { recipientId, read: false },
-        data: { read: true }
+        where: { userId, isRead: false },
+        data: { isRead: true }
       });
 
       return res.json({

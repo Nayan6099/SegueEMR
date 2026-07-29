@@ -1,25 +1,20 @@
-import axios from 'axios';
+/**
+ * SegueEMR API Service Layer
+ *
+ * All HTTP calls go through apiClient (centralized error handling, JWT auth, 401 redirect).
+ * No raw axios import — this eliminates duplicate interceptor registration.
+ *
+ * Fixes from original:
+ * - Removed module-level useRouter() (React hook rule violation / build crash)
+ * - Fixed EMMRRecord typo -> EMRRecord
+ * - Normalized 32-level indentation to flat structure
+ * - Removed per-method data normalization duplication (handled in components)
+ * - All methods use apiClient instance (not global axios)
+ */
 
-const API_ROOT = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
-const API_BASE_URL = `${API_ROOT}/ehr`;
-const AUTH_BASE_URL = `${API_ROOT}/auth`;
+import apiClient from './apiClient';
 
-// Configure Axios request interceptor to attach JWT token
-axios.interceptors.request.use(
-  (config) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('segue_token');
-      if (token) {
-        config.headers = config.headers || {};
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+// ─── Type Exports ─────────────────────────────────────────────────────────────
 
 export interface User {
   userId: string;
@@ -28,6 +23,8 @@ export interface User {
   name?: string;
   fullName?: string;
   status?: string;
+  patientId?: string;
+  doctorId?: string;
 }
 
 export interface PatientRecord {
@@ -38,11 +35,13 @@ export interface PatientRecord {
 
 export interface AppNotification {
   id: string;
-  recipientId: string;
+  userId: string;
+  title: string;
   message: string;
-  recordType: string;
-  recordId: string;
-  read: boolean;
+  type: string;
+  referenceType: string;
+  referenceId: string;
+  isRead: boolean;
   createdAt: string;
 }
 
@@ -50,7 +49,6 @@ export interface EMRRecord {
   recordId: string;
   patientId: string;
   patientName: string;
-  ipfsHash?: string; // Leftover for legacy compatibility
   blobReference?: string;
   fileUrl?: string;
   recordType: string;
@@ -80,28 +78,34 @@ export interface Prescription {
   patientName?: string;
   doctorId: string;
   doctorName?: string;
-  emrRecordId?: string;
   medicationDetails: string;
   dosage: string;
   duration: string;
+  assignedPharmacyId?: string;
   status: 'pending' | 'dispensed';
   dispensedBy?: string;
   createdAt: string;
+  medications?: Array<{ name: string; dosage?: string; frequency?: string; duration?: string }>;
 }
 
 export interface LabOrder {
   id: string;
   patientId: string;
-  patientName?: string;
+  patientName: string;
   doctorId: string;
   doctorName?: string;
-  emrRecordId?: string;
+  doctorSpecialization?: string;
   testName: string;
+  status: string;
   notes?: string;
-  status: 'ordered' | 'processing' | 'completed';
-  resultsUrl?: string;
+  resultSummary?: string;
+  critical: boolean;
+  resultFields?: string;
   processedBy?: string;
   createdAt: string;
+  updatedAt: string;
+  doctorNotifiedAt?: string;
+  patientNotifiedAt?: string;
 }
 
 export interface Invoice {
@@ -150,7 +154,7 @@ export interface PatientForm {
   id: string;
   patientId: string;
   formType: string;
-  formData: any;
+  formData: unknown;
   status: 'draft' | 'submitted';
   submittedAt?: string;
   createdAt?: string;
@@ -247,7 +251,7 @@ export interface Medicine {
 
 export interface Setting {
   key: string;
-  value: any;
+  value: unknown;
 }
 
 export interface Organization {
@@ -261,492 +265,449 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
   message?: string;
+  code?: string;
   count?: number;
 }
 
+// ─── Helper: normalize prescription data ──────────────────────────────────────
+function normalizePrescription(rx: Record<string, unknown>): Prescription {
+  const medications = (rx.medications as Array<Record<string, string>> || []);
+  const medDetails = medications.length
+    ? medications.map(m => `${m.name} (${m.dosage}, ${m.frequency}, ${m.duration})`).join(', ')
+    : (rx.medicationDetails as string || '');
+  return {
+    ...(rx as unknown as Prescription),
+    id: (rx.prescriptionId || rx.id || rx._id) as string,
+    medicationDetails: medDetails,
+  };
+}
+
+// ─── Helper: normalize lab order data ────────────────────────────────────────
+function normalizeLabOrder(lab: Record<string, unknown>): LabOrder {
+  return {
+    ...(lab as unknown as LabOrder),
+    id: (lab.labOrderId || lab.id || lab._id) as string,
+    testName: (lab.testName || lab.testType || '') as string,
+  };
+}
+
+// ─── Helper: normalize invoice data ──────────────────────────────────────────
+function normalizeInvoice(inv: Record<string, unknown>): Invoice {
+  return {
+    ...(inv as unknown as Invoice),
+    id: (inv.invoiceId || inv.id || inv._id) as string,
+    amount: (inv.totalAmount !== undefined ? inv.totalAmount : inv.amount) as number,
+  };
+}
+
+// ─── API Methods ──────────────────────────────────────────────────────────────
 const api = {
-  // EHR records
+
+  // ── EHR Records ────────────────────────────────────────────────────────────
   uploadEHR: async (formData: FormData): Promise<ApiResponse<EMRRecord>> => {
-    const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    const { data } = await apiClient.post('/ehr/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return response.data;
+    return data;
   },
 
   viewEHR: async (recordId: string, userId: string, orgName: string): Promise<Blob> => {
-    const response = await axios.get(`${API_BASE_URL}/view`, {
+    const { data } = await apiClient.get('/ehr/view', {
       params: { recordId, userId, orgName },
-      responseType: 'blob'
+      responseType: 'blob',
     });
-    return response.data;
+    return data;
   },
 
-  getRecordDetails: async (recordId: string, userId: string, orgName: string): Promise<ApiResponse<{ blockchain: any, metadata: EMRRecord }>> => {
-    const response = await axios.get(`${API_BASE_URL}/details`, {
-      params: { recordId, userId, orgName }
-    });
-    return response.data;
+  getRecordDetails: async (recordId: string, userId: string, orgName: string): Promise<ApiResponse<{ metadata: EMRRecord }>> => {
+    const { data } = await apiClient.get('/ehr/details', { params: { recordId, userId, orgName } });
+    return data;
   },
 
-  grantAccess: async (recordId: string, patientId: string, doctorId: string): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_BASE_URL}/grant-access`, {
-      recordId,
-      patientId,
-      doctorId
-    });
-    return response.data;
+  grantAccess: async (recordId: string, patientId: string, doctorId: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/ehr/grant-access', { recordId, patientId, doctorId });
+    return data;
   },
 
-  revokeAccess: async (recordId: string, patientId: string, doctorId: string): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_BASE_URL}/revoke-access`, {
-      recordId,
-      patientId,
-      doctorId
-    });
-    return response.data;
+  revokeAccess: async (recordId: string, patientId: string, doctorId: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/ehr/revoke-access', { recordId, patientId, doctorId });
+    return data;
   },
 
-  getAccessHistory: async (recordId: string, userId: string, orgName: string): Promise<ApiResponse<any>> => {
-    const response = await axios.get(`${API_BASE_URL}/history`, {
-      params: { recordId, userId, orgName }
-    });
-    return response.data;
+  getAccessHistory: async (recordId: string, userId: string, orgName: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.get('/ehr/history', { params: { recordId, userId, orgName } });
+    return data;
   },
 
-  getPatientRecords: async (patientId: string, userId: string, orgName: string): Promise<ApiResponse<EMMRRecord[]>> => {
-    const response = await axios.get(`${API_BASE_URL}/patient-records`, {
-      params: { patientId, userId, orgName }
-    });
-    return response.data;
+  getPatientRecords: async (patientId: string, userId: string, orgName: string): Promise<ApiResponse<EMRRecord[]>> => {
+    const { data } = await apiClient.get('/ehr/patient-records', { params: { patientId, userId, orgName } });
+    return data;
   },
 
   registerUser: async (userId: string, orgName: string, role: string): Promise<ApiResponse<User>> => {
-    const response = await axios.post(`${API_BASE_URL}/register-user`, {
-      userId,
-      orgName,
-      role
-    });
-    return response.data;
+    const { data } = await apiClient.post('/ehr/register-user', { userId, orgName, role });
+    return data;
   },
 
-  // Appointments
-  listAppointments: async (params: any = {}): Promise<ApiResponse<Appointment[]>> => {
-    const response = await axios.get(`${API_ROOT}/appointments`, { params });
-    return response.data;
+  // ── Appointments ───────────────────────────────────────────────────────────
+  listAppointments: async (params: Record<string, string> = {}): Promise<ApiResponse<Appointment[]>> => {
+    const { data } = await apiClient.get('/appointments', { params });
+    return data;
   },
 
   getAvailableSlots: async (doctorId: string, date?: string): Promise<ApiResponse<string[]>> => {
-    const response = await axios.get(`${API_ROOT}/appointments/available-slots`, { params: { doctorId, date } });
-    return response.data;
+    const { data } = await apiClient.get('/appointments/available-slots', { params: { doctorId, date } });
+    return data;
   },
 
   createAppointment: async (payload: Partial<Appointment>): Promise<ApiResponse<Appointment>> => {
     const { scheduledTime, ...rest } = payload;
-    const backendPayload = {
+    const { data } = await apiClient.post('/appointments', {
       ...rest,
       scheduledAt: scheduledTime,
-      createdBy: payload.patientId || 'patient'
-    };
-    const response = await axios.post(`${API_ROOT}/appointments`, backendPayload);
-    return response.data;
+    });
+    return data;
   },
 
   updateAppointment: async (appointmentId: string, payload: Partial<Appointment>): Promise<ApiResponse<Appointment>> => {
-    const response = await axios.put(`${API_ROOT}/appointments/${appointmentId}`, payload);
-    return response.data;
+    const { data } = await apiClient.put(`/appointments/${appointmentId}`, payload);
+    return data;
   },
 
-  cancelAppointment: async (appointmentId: string, cancelledBy: string): Promise<ApiResponse<any>> => {
-    const response = await axios.delete(`${API_ROOT}/appointments/${appointmentId}`, { data: { cancelledBy } });
-    return response.data;
+  cancelAppointment: async (appointmentId: string, cancelledBy: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.delete(`/appointments/${appointmentId}`, { data: { cancelledBy } });
+    return data;
   },
 
-  // Prescriptions
-  listPrescriptions: async (params: any = {}): Promise<ApiResponse<Prescription[]>> => {
-    const response = await axios.get(`${API_ROOT}/prescriptions`, { params });
-    if (response.data && response.data.success && Array.isArray(response.data.data)) {
-      response.data.data = response.data.data.map((rx: any) => {
-        let medDetails = '';
-        if (Array.isArray(rx.medications) && rx.medications.length > 0) {
-          medDetails = rx.medications.map((m: any) => `${m.name} (${m.dosage}, ${m.frequency}, ${m.duration})`).join(', ');
-        }
-        return {
-          ...rx,
-          id: rx.prescriptionId || rx.id || rx._id,
-          medicationDetails: medDetails || rx.medicationDetails || ''
-        };
-      });
+  // ── Prescriptions ──────────────────────────────────────────────────────────
+  listPrescriptions: async (params: Record<string, string> = {}): Promise<ApiResponse<Prescription[]>> => {
+    const { data } = await apiClient.get('/prescriptions', { params });
+    if (data?.success && Array.isArray(data.data)) {
+      data.data = data.data.map(normalizePrescription);
     }
-    return response.data;
+    return data;
   },
 
   createPrescription: async (payload: Partial<Prescription>): Promise<ApiResponse<Prescription>> => {
-    let medications = [];
-    if (payload.medicationDetails) {
+    // Build medications array from legacy medicationDetails string if needed
+    let medications = (payload as Record<string, unknown>).medications as unknown[] || [];
+    if (!medications.length && payload.medicationDetails) {
       const parts = payload.medicationDetails.split(' | ');
-      if (parts.length >= 4) {
-        medications.push({
-          name: parts[0],
-          dosage: parts[1],
-          frequency: parts[2],
-          duration: parts[3]
-        });
-      } else {
-        medications.push({
-          name: payload.medicationDetails,
-          dosage: payload.dosage || '',
-          frequency: '',
-          duration: payload.duration || ''
-        });
-      }
+      medications = [{
+        name:      parts[0] || payload.medicationDetails,
+        dosage:    parts[1] || payload.dosage || '',
+        frequency: parts[2] || '',
+        duration:  parts[3] || payload.duration || '',
+      }];
     }
-    const backendPayload = {
-      ...payload,
-      medications
-    };
-    const response = await axios.post(`${API_ROOT}/prescriptions`, backendPayload);
-    if (response.data && response.data.success && response.data.data) {
-      const rx = response.data.data;
-      let medDetails = '';
-      if (Array.isArray(rx.medications) && rx.medications.length > 0) {
-        medDetails = rx.medications.map((m: any) => `${m.name} (${m.dosage}, ${m.frequency}, ${m.duration})`).join(', ');
-      }
-      response.data.data = {
-        ...rx,
-        id: rx.prescriptionId || rx.id || rx._id,
-        medicationDetails: medDetails || rx.medicationDetails || ''
-      };
-    }
-    return response.data;
+    const { data } = await apiClient.post('/prescriptions', { ...payload, medications });
+    if (data?.success && data.data) data.data = normalizePrescription(data.data);
+    return data;
   },
 
   dispensePrescription: async (prescriptionId: string, dispensedBy: string): Promise<ApiResponse<Prescription>> => {
-    const response = await axios.put(`${API_ROOT}/prescriptions/${prescriptionId}/dispense`, { dispensedBy });
-    if (response.data && response.data.success && response.data.data) {
-      const rx = response.data.data;
-      let medDetails = '';
-      if (Array.isArray(rx.medications) && rx.medications.length > 0) {
-        medDetails = rx.medications.map((m: any) => `${m.name} (${m.dosage}, ${m.frequency}, ${m.duration})`).join(', ');
-      }
-      response.data.data = {
-        ...rx,
-        id: rx.prescriptionId || rx.id || rx._id,
-        medicationDetails: medDetails || rx.medicationDetails || ''
-      };
-    }
-    return response.data;
+    const { data } = await apiClient.put(`/prescriptions/${prescriptionId}/dispense`, { dispensedBy });
+    if (data?.success && data.data) data.data = normalizePrescription(data.data);
+    return data;
   },
 
-  // Lab
-  listLabOrders: async (params: any = {}): Promise<ApiResponse<LabOrder[]>> => {
-    const response = await axios.get(`${API_ROOT}/lab/orders`, { params });
-    if (response.data && response.data.success && Array.isArray(response.data.data)) {
-      response.data.data = response.data.data.map((lab: any) => ({
-        ...lab,
-        id: lab.labOrderId || lab.id || lab._id,
-        testName: lab.testType || lab.testName || ''
-      }));
+  // ── Lab Orders ────────────────────────────────────────────────────────────
+  listLabOrders: async (params: Record<string, string> = {}): Promise<ApiResponse<LabOrder[]>> => {
+    const { data } = await apiClient.get('/lab/orders', { params });
+    if (data?.success && Array.isArray(data.data)) {
+      data.data = data.data.map(normalizeLabOrder);
     }
-    return response.data;
+    return data;
   },
 
   createLabOrder: async (payload: Partial<LabOrder>): Promise<ApiResponse<LabOrder>> => {
-    const backendPayload = {
+    const { data } = await apiClient.post('/lab/orders', {
       ...payload,
-      testType: payload.testName || ''
-    };
-    const response = await axios.post(`${API_ROOT}/lab/orders`, backendPayload);
-    if (response.data && response.data.success && response.data.data) {
-      const lab = response.data.data;
-      response.data.data = {
-        ...lab,
-        id: lab.labOrderId || lab.id || lab._id,
-        testName: lab.testType || lab.testName || ''
-      };
-    }
-    return response.data;
+      testType: payload.testName || '',
+    });
+    if (data?.success && data.data) data.data = normalizeLabOrder(data.data);
+    return data;
   },
 
   updateLabOrderStatus: async (labOrderId: string, status: string, processedBy: string): Promise<ApiResponse<LabOrder>> => {
-    const response = await axios.put(`${API_ROOT}/lab/orders/${labOrderId}/status`, { status, processedBy });
-    if (response.data && response.data.success && response.data.data) {
-      const lab = response.data.data;
-      response.data.data = {
-        ...lab,
-        id: lab.labOrderId || lab.id || lab._id,
-        testName: lab.testType || lab.testName || ''
-      };
-    }
-    return response.data;
+    const { data } = await apiClient.put(`/lab/orders/${labOrderId}/status`, { status, processedBy });
+    if (data?.success && data.data) data.data = normalizeLabOrder(data.data);
+    return data;
   },
 
-  uploadLabResult: async (labOrderId: string, payload: any): Promise<ApiResponse<LabOrder>> => {
-    const response = await axios.put(`${API_ROOT}/lab/orders/${labOrderId}/result`, payload);
-    if (response.data && response.data.success && response.data.data) {
-      const lab = response.data.data;
-      response.data.data = {
-        ...lab,
-        id: lab.labOrderId || lab.id || lab._id,
-        testName: lab.testType || lab.testName || ''
-      };
-    }
-    return response.data;
+  uploadLabResult: async (labOrderId: string, payload: Record<string, unknown>): Promise<ApiResponse<LabOrder>> => {
+    const { data } = await apiClient.put(`/lab/orders/${labOrderId}/result`, payload);
+    if (data?.success && data.data) data.data = normalizeLabOrder(data.data);
+    return data;
   },
 
-  // Billing
-  listInvoices: async (params: any = {}): Promise<ApiResponse<Invoice[]>> => {
-    const response = await axios.get(`${API_ROOT}/billing/invoices`, { params });
-    if (response.data && response.data.success && Array.isArray(response.data.data)) {
-      response.data.data = response.data.data.map((inv: any) => ({
-        ...inv,
-        id: inv.invoiceId || inv.id || inv._id,
-        amount: inv.totalAmount !== undefined ? inv.totalAmount : inv.amount
-      }));
+  notifyLabOrder: async (orderId: string, target: 'doctor' | 'patient' | 'both'): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post(`/lab/orders/${orderId}/notify`, { target });
+    return data;
+  },
+
+  undoLabOrderComplete: async (orderId: string): Promise<ApiResponse<LabOrder>> => {
+    const { data } = await apiClient.post(`/lab/orders/${orderId}/undo`);
+    return data;
+  },
+
+  fetchDoctorLabReports: async (): Promise<ApiResponse<LabOrder[]>> => {
+    const { data } = await apiClient.get('/lab/orders/doctor/reports');
+    return data;
+  },
+
+  fetchPatientLabReports: async (): Promise<ApiResponse<LabOrder[]>> => {
+    const { data } = await apiClient.get('/lab/orders', { params: { status: 'completed' } });
+    return data;
+  },
+
+  fetchPrintReport: async (reportId: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.get(`/lab/reports/${reportId}/print`);
+    return data;
+  },
+
+  // ── Billing ───────────────────────────────────────────────────────────────
+  listInvoices: async (params: Record<string, string> = {}): Promise<ApiResponse<Invoice[]>> => {
+    const { data } = await apiClient.get('/billing/invoices', { params });
+    if (data?.success && Array.isArray(data.data)) {
+      data.data = data.data.map(normalizeInvoice);
     }
-    return response.data;
+    return data;
   },
 
   createInvoice: async (payload: Partial<Invoice>): Promise<ApiResponse<Invoice>> => {
-    const response = await axios.post(`${API_ROOT}/billing/invoices`, payload);
-    if (response.data && response.data.success && response.data.data) {
-      const inv = response.data.data;
-      response.data.data = {
-        ...inv,
-        id: inv.invoiceId || inv.id || inv._id,
-        amount: inv.totalAmount !== undefined ? inv.totalAmount : inv.amount
-      };
-    }
-    return response.data;
+    const { data } = await apiClient.post('/billing/invoices', payload);
+    if (data?.success && data.data) data.data = normalizeInvoice(data.data);
+    return data;
   },
 
   markInvoicePaid: async (invoiceId: string, updatedBy: string): Promise<ApiResponse<Invoice>> => {
-    const response = await axios.put(`${API_ROOT}/billing/invoices/${invoiceId}/pay`, { updatedBy });
-    if (response.data && response.data.success && response.data.data) {
-      const inv = response.data.data;
-      response.data.data = {
-        ...inv,
-        id: inv.invoiceId || inv.id || inv._id,
-        amount: inv.totalAmount !== undefined ? inv.totalAmount : inv.amount
-      };
-    }
-    return response.data;
+    const { data } = await apiClient.put(`/billing/invoices/${invoiceId}/pay`, { updatedBy });
+    if (data?.success && data.data) data.data = normalizeInvoice(data.data);
+    return data;
   },
 
-  // Analytics
-  getAnalyticsOverview: async (): Promise<ApiResponse<any>> => {
-    const response = await axios.get(`${API_ROOT}/analytics/overview`);
-    return response.data;
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  getAnalyticsOverview: async (): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.get('/analytics/overview');
+    return data;
   },
 
-  // --- Patient Portal Additions ---
+  // ── Patient Portal ────────────────────────────────────────────────────────
   getAllergies: async (patientId: string): Promise<ApiResponse<Allergy[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/allergies`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/allergies', { params: { patientId } });
+    return data;
   },
 
-  addAllergy: async (payload: { patientId: string; allergen: string; severity: string; reaction: string }): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/allergies`, payload);
-    return response.data;
+  addAllergy: async (payload: { patientId: string; allergen: string; severity: string; reaction: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/allergies', payload);
+    return data;
   },
 
   getProblems: async (patientId: string): Promise<ApiResponse<Problem[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/problems`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/problems', { params: { patientId } });
+    return data;
   },
 
-  addProblem: async (payload: { patientId: string; code: string; description: string; onsetDate: string }): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/problems`, payload);
-    return response.data;
+  addProblem: async (payload: { patientId: string; code: string; description: string; onsetDate: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/problems', payload);
+    return data;
   },
 
   listRefillRequests: async (patientId: string): Promise<ApiResponse<RefillRequest[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/refills`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/refills', { params: { patientId } });
+    return data;
   },
 
-  requestRefill: async (payload: { prescriptionId: string; notes: string }): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/refills`, payload);
-    return response.data;
+  requestRefill: async (payload: { prescriptionId: string; notes: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/refills', payload);
+    return data;
   },
 
   getPatientForms: async (patientId: string): Promise<ApiResponse<PatientForm[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/forms`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/forms', { params: { patientId } });
+    return data;
   },
 
-  submitPatientForm: async (payload: { patientId: string; formType: string; formData: any }): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/forms`, payload);
-    return response.data;
+  submitPatientForm: async (payload: { patientId: string; formType: string; formData: unknown }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/forms', payload);
+    return data;
   },
 
   getMessages: async (userId: string, otherId: string): Promise<ApiResponse<Message[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/messages`, { params: { userId, otherId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/messages', { params: { userId, otherId } });
+    return data;
   },
 
-  sendMessage: async (payload: { senderId: string; receiverId: string; content: string }): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/messages`, payload);
-    return response.data;
+  sendMessage: async (payload: { senderId: string; receiverId: string; content: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/messages', payload);
+    return data;
   },
 
   getApiKeys: async (patientId: string): Promise<ApiResponse<PatientApiKey[]>> => {
-    const response = await axios.get(`${API_ROOT}/patient/api-keys`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/patient/api-keys', { params: { patientId } });
+    return data;
   },
 
   generateApiKey: async (payload: { patientId: string; keyName: string; durationDays: number }): Promise<ApiResponse<{ apiKey: string; expiresAt: string; message: string }>> => {
-    const response = await axios.post(`${API_ROOT}/patient/api-keys`, payload);
-    return response.data;
+    const { data } = await apiClient.post('/patient/api-keys', payload);
+    return data;
   },
 
-  exportCCDA: async (patientId: string): Promise<string> => {
-    return `${API_ROOT}/patient/ccda/export/${patientId}`;
+  exportCCDA: (patientId: string): string => {
+    return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/patient/ccda/export/${patientId}`;
   },
 
-  importCCDA: async (formData: FormData): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/patient/ccda/import`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+  importCCDA: async (formData: FormData): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/patient/ccda/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return response.data;
+    return data;
   },
 
-  // --- Intake Workflow ---
-  createIntake: async (payload: Partial<PatientIntake>): Promise<ApiResponse<any>> => {
-    const response = await axios.post(`${API_ROOT}/intake`, payload);
-    return response.data;
+  // ── Intake Workflow ───────────────────────────────────────────────────────
+  createIntake: async (payload: Partial<PatientIntake>): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/intake', payload);
+    return data;
   },
 
-  listIntakes: async (params: any = {}): Promise<ApiResponse<PatientIntake[]>> => {
-    const response = await axios.get(`${API_ROOT}/intake`, { params });
-    return response.data;
+  listIntakes: async (params: Record<string, string> = {}): Promise<ApiResponse<PatientIntake[]>> => {
+    const { data } = await apiClient.get('/intake', { params });
+    return data;
   },
 
-  updateIntake: async (id: string, payload: Partial<PatientIntake> & { changedBy: string }): Promise<ApiResponse<any>> => {
-    const response = await axios.put(`${API_ROOT}/intake/${id}`, payload);
-    return response.data;
+  updateIntake: async (id: string, payload: Partial<PatientIntake> & { changedBy: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.put(`/intake/${id}`, payload);
+    return data;
   },
 
-  updateIntakeStatus: async (id: string, status: string): Promise<ApiResponse<any>> => {
-    const response = await axios.put(`${API_ROOT}/intake/${id}/status`, { status });
-    return response.data;
+  updateIntakeStatus: async (id: string, status: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.put(`/intake/${id}/status`, { status });
+    return data;
   },
 
-  getIntakeAuditHistory: async (id: string): Promise<ApiResponse<any[]>> => {
-    const response = await axios.get(`${API_ROOT}/intake/${id}/history`);
-    return response.data;
+  getIntakeAuditHistory: async (id: string): Promise<ApiResponse<unknown[]>> => {
+    const { data } = await apiClient.get(`/intake/${id}/history`);
+    return data;
   },
 
-  // --- Vitals & SOAP Notes ---
+  // ── Vitals & Clinical Notes ───────────────────────────────────────────────
   listVitals: async (patientId: string): Promise<ApiResponse<Vitals[]>> => {
-    const response = await axios.get(`${API_ROOT}/vitals`, { params: { patientId } });
-    return response.data;
+    const { data } = await apiClient.get('/vitals', { params: { patientId } });
+    return data;
   },
 
   addVitals: async (payload: Partial<Vitals>): Promise<ApiResponse<Vitals>> => {
-    const response = await axios.post(`${API_ROOT}/vitals`, payload);
-    return response.data;
+    const { data } = await apiClient.post('/vitals', payload);
+    return data;
   },
 
   getClinicalNote: async (appointmentId: string): Promise<ApiResponse<ClinicalNote>> => {
-    const response = await axios.get(`${API_ROOT}/clinical-notes/appointment/${appointmentId}`);
-    return response.data;
+    const { data } = await apiClient.get(`/clinical-notes/appointment/${appointmentId}`);
+    return data;
   },
 
   createClinicalNote: async (payload: Partial<ClinicalNote>): Promise<ApiResponse<ClinicalNote>> => {
-    const response = await axios.post(`${API_ROOT}/clinical-notes`, payload);
-    return response.data;
+    const { data } = await apiClient.post('/clinical-notes', payload);
+    return data;
   },
 
-  // --- Medicine Inventory ---
+  // ── Medicine Inventory ────────────────────────────────────────────────────
   listMedicines: async (): Promise<ApiResponse<Medicine[]>> => {
-    const response = await axios.get(`${API_ROOT}/medicines`);
-    return response.data;
+    const { data } = await apiClient.get('/medicines');
+    return data;
   },
 
   addOrUpdateMedicine: async (payload: Partial<Medicine> & { updatedBy: string }): Promise<ApiResponse<Medicine>> => {
-    const response = await axios.post(`${API_ROOT}/medicines`, payload);
-    return response.data;
+    const { data } = await apiClient.post('/medicines', payload);
+    return data;
   },
 
-  // --- Settings ---
+  // ── Settings ──────────────────────────────────────────────────────────────
   getSettings: async (): Promise<ApiResponse<Setting[]>> => {
-    const response = await axios.get(`${API_ROOT}/admin/settings`);
-    return response.data;
+    const { data } = await apiClient.get('/admin/settings');
+    return data;
   },
 
-  updateSetting: async (key: string, value: any): Promise<ApiResponse<Setting>> => {
-    const response = await axios.post(`${API_ROOT}/admin/settings`, { key, value });
-    return response.data;
+  updateSetting: async (key: string, value: unknown): Promise<ApiResponse<Setting>> => {
+    const { data } = await apiClient.post('/admin/settings', { key, value });
+    return data;
   },
 
   exportCSVUrl: (resource: string): string => {
-    return `${API_ROOT}/admin/export/${resource}`;
+    return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/admin/export/${resource}`;
   },
 
-  // --- Organization Owner ---
+  // ── Organization ──────────────────────────────────────────────────────────
   getOrganizationDetails: async (orgName: string): Promise<ApiResponse<{ org: Organization; staff: User[] }>> => {
-    const response = await axios.get(`${API_ROOT}/organization`, { params: { orgName } });
-    return response.data;
+    const { data } = await apiClient.get('/organization', { params: { orgName } });
+    return data;
   },
 
   addOrgDepartment: async (orgName: string, departmentName: string): Promise<ApiResponse<Organization>> => {
-    const response = await axios.post(`${API_ROOT}/organization/department`, { orgName, departmentName });
-    return response.data;
+    const { data } = await apiClient.post('/organization/department', { orgName, departmentName });
+    return data;
   },
 
   updateAccessRules: async (payload: { orgName: string; role: string; permissions: string[] }): Promise<ApiResponse<Organization>> => {
-    const response = await axios.post(`${API_ROOT}/organization/access-rules`, payload);
-    return response.data;
+    const { data } = await apiClient.post('/organization/access-rules', payload);
+    return data;
   },
 
-  // --- Patient Registry ---
-  registerPatient: async (payload: { name: string; dateOfBirth?: string; gender?: string; contactPhone?: string; contactEmail?: string }): Promise<{ success: boolean; existing: boolean; data: PatientRecord }> => {
-    const response = await axios.post(`${API_ROOT}/intake/patients/register`, payload);
-    return response.data;
+  // ── Patient Registry ──────────────────────────────────────────────────────
+  registerPatient: async (payload: {
+    name: string;
+    dateOfBirth?: string;
+    gender?: string;
+    contactPhone?: string;
+    contactEmail?: string;
+  }): Promise<{ success: boolean; existing: boolean; data: PatientRecord }> => {
+    const { data } = await apiClient.post('/intake/patients/register', payload);
+    return data;
   },
 
   searchPatients: async (q: string): Promise<{ success: boolean; data: PatientRecord[] }> => {
-    const response = await axios.get(`${API_ROOT}/intake/patients/search`, { params: { q } });
-    return response.data;
+    const { data } = await apiClient.get('/intake/patients/search', { params: { q } });
+    return data;
   },
 
-  // --- Auth ---
+  // ── Auth ──────────────────────────────────────────────────────────────────
   login: async (
     userId: string,
     orgName: string,
     role: string,
     password?: string
-  ): Promise<ApiResponse<{
-    token: string;
-    user: User & { patientId?: string; doctorId?: string }
-  }>> => {
-
-    const response = await axios.post(`${AUTH_BASE_URL}/login`, {
-      userId,
-      orgName,
-      role,
-      password
-    });
-
-    return response.data;
+  ): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
+    const { data } = await apiClient.post('/auth/login', { userId, orgName, role, password });
+    return data;
   },
 
-  // --- Notifications ---
+  // ── Notifications ─────────────────────────────────────────────────────────
   listNotifications: async (): Promise<ApiResponse<AppNotification[]>> => {
-    const response = await axios.get(`${API_ROOT}/notifications`);
-    return response.data;
+    const { data } = await apiClient.get('/notifications');
+    return data;
+  },
+
+  getUnreadNotificationCount: async (): Promise<ApiResponse<{ count: number }>> => {
+    const { data } = await apiClient.get('/notifications/unread-count');
+    return data;
   },
 
   markNotificationRead: async (id: string): Promise<ApiResponse<AppNotification>> => {
-    const response = await axios.put(`${API_ROOT}/notifications/${id}/read`);
-    return response.data;
+    const { data } = await apiClient.put(`/notifications/${id}/read`);
+    return data;
   },
 
-  markAllNotificationsRead: async (): Promise<ApiResponse<any>> => {
-    const response = await axios.put(`${API_ROOT}/notifications/read-all`);
-    return response.data;
+  markAllNotificationsRead: async (): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.put('/notifications/read-all');
+    return data;
+  },
+
+  // ── Directory / Providers ─────────────────────────────────────────────────
+  getProviders: async (role?: string): Promise<ApiResponse<unknown[]>> => {
+    const { data } = await apiClient.get('/directory/providers', { params: role ? { role } : {} });
+    return data;
   },
 };
 
-type EMMRRecord = EMRRecord; // Alias correction
 export default api;

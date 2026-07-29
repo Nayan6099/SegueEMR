@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import api, { User, EMRRecord, Appointment, Prescription, LabOrder, Invoice, Vitals, Medicine, Setting, Organization, PatientRecord, AppNotification } from '../services/api';
 
+
 const ROLE_LABELS: Record<string, string> = {
   patient: 'Patient',
   doctor: 'Doctor',
@@ -307,8 +308,8 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedCCDAFile, setSelectedCCDAFile] = useState<File | null>(null);
   const [grantAccessForm, setGrantAccessForm] = useState({ recordId: '', doctorId: '' });
-  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: 'DR-dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
-  const [rxForm, setRxForm] = useState({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '' });
+  const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: 'dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
+  const [rxForm, setRxForm] = useState({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '', assignedPharmacyId: '' });
   const [vitalsHistory, setVitalsHistory] = useState<Vitals[]>([]);
   const [vitalsForm, setVitalsForm] = useState({ temperature: '', bloodPressure: '', pulse: '', spo2: '' });
   const [selectedAptForVitals, setSelectedAptForVitals] = useState<any | null>(null);
@@ -327,7 +328,9 @@ export default function Home() {
   const [orgStaff, setOrgStaff] = useState<User[]>([]);
   const [newDepartmentName, setNewDepartmentName] = useState('');
   const [editingRolePermissions, setEditingRolePermissions] = useState({ role: 'doctor', permissions: '' });
-  const [labForm, setLabForm] = useState({ patientId: '', patientName: '', testName: '', notes: '' });
+  const [labForm, setLabForm] = useState({ patientId: '', patientName: '', testName: '', notes: '', assignedLabId: '' });
+  const [labsList, setLabsList] = useState<any[]>([]);
+  const [pharmaciesList, setPharmaciesList] = useState<any[]>([]);
   const [invoiceForm, setInvoiceForm] = useState({ patientId: '', patientName: '', amount: '' });
 
   // Patient Picker State hooks
@@ -540,13 +543,15 @@ export default function Home() {
         setApiKeysList(keysRes.data || []);
         setNotifications(notifRes.data || []);
       } else if (role === 'doctor') {
-        const [recordsRes, aptsRes, rxRes, labsRes, intakeRes, notifRes] = await Promise.all([
+        const [recordsRes, aptsRes, rxRes, labsRes, intakeRes, notifRes, labsListRes, pharmListRes] = await Promise.all([
           api.getPatientRecords(userId, userId, orgName),
           api.listAppointments({ doctorId: userId }),
           api.listPrescriptions({ doctorId: userId }),
           api.listLabOrders({ doctorId: userId }),
           api.listIntakes({ doctorId: userId }),
-          api.listNotifications()
+          api.listNotifications(),
+          api.getProviders('lab_technician'),
+          api.getProviders('pharmacist')
         ]);
         setRecords(recordsRes.data || []);
         setAppointments(aptsRes.data || []);
@@ -554,6 +559,8 @@ export default function Home() {
         setLabOrders(labsRes.data || []);
         setIntakesList(intakeRes.data || []);
         setNotifications(notifRes.data || []);
+        setLabsList(labsListRes.data || []);
+        setPharmaciesList(pharmListRes.data || []);
       } else if (role === 'nurse') {
         const aptsRes = await api.listAppointments();
         setAppointments(aptsRes.data || []);
@@ -883,7 +890,7 @@ export default function Home() {
         status: appointmentForm.status as any
       });
       showToast('Appointment successfully scheduled');
-      setAppointmentForm({ patientId: '', patientName: '', doctorId: 'DR-dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
+      setAppointmentForm({ patientId: '', patientName: '', doctorId: 'dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
       setAppointmentPicker({
         isNew: false,
         patientId: '',
@@ -943,10 +950,17 @@ export default function Home() {
         doctorId: currentUser.userId,
         medicationDetails: `${rxForm.medName} | ${rxForm.dosage} | ${rxForm.frequency} | ${rxForm.duration}`,
         dosage: rxForm.dosage,
-        duration: rxForm.duration
+        duration: rxForm.duration,
+        assignedPharmacyId: rxForm.assignedPharmacyId,
+        medications: [{
+          name: rxForm.medName,
+          dosage: rxForm.dosage,
+          frequency: rxForm.frequency,
+          duration: rxForm.duration
+        }]
       });
       showToast('Prescription successfully created');
-      setRxForm({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '' });
+      setRxForm({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '', assignedPharmacyId: '' });
       setRxPicker({
         isNew: false,
         patientId: '',
@@ -1192,10 +1206,11 @@ export default function Home() {
         patientName: finalPatientName,
         doctorId: currentUser.userId,
         testName: labForm.testName,
-        notes: labForm.notes
+        notes: labForm.notes,
+        assignedLabId: labForm.assignedLabId
       });
       showToast('Laboratory order submitted');
-      setLabForm({ patientId: '', patientName: '', testName: '', notes: '' });
+      setLabForm({ patientId: '', patientName: '', testName: '', notes: '', assignedLabId: '' });
       setLabPicker({
         isNew: false,
         patientId: '',
@@ -1440,7 +1455,7 @@ export default function Home() {
                     title="In-app alerts"
                   >
                     <Bell className="h-5 w-5" />
-                    {notifications.some(n => !n.read) && (
+                    {notifications.some(n => !n.isRead) && (
                       <span className="absolute top-1 right-1 block h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
                     )}
                   </button>
@@ -1449,9 +1464,9 @@ export default function Home() {
                     <div className="absolute right-0 mt-2 w-80 rounded-md bg-white border border-slate-200 shadow-lg py-1 z-50">
                       <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
                         <span className="font-semibold text-xs text-slate-700">
-                          Notifications ({notifications.filter(n => !n.read).length} unread)
+                          Notifications ({notifications.filter(n => !n.isRead).length} unread)
                         </span>
-                        {notifications.some(n => !n.read) && (
+                        {notifications.some(n => !n.isRead) && (
                           <button
                             onClick={() => {
                               handleMarkAllNotificationsRead();
@@ -1476,20 +1491,21 @@ export default function Home() {
                                 handleMarkNotificationRead(notif.id);
                                 setShowNotificationsDropdown(false);
                                 if (currentUser.role === 'doctor') {
-                                  if (notif.recordType === 'LabOrder') {
+                                  if (notif.referenceType === 'LabOrder') {
                                     setActiveTab('labs');
-                                  } else if (notif.recordType === 'Prescription') {
+                                  } else if (notif.referenceType === 'Prescription') {
                                     setActiveTab('prescriptions');
                                   }
                                 } else if (currentUser.role === 'patient') {
-                                  if (notif.recordType === 'LabOrder' || notif.recordType === 'Prescription') {
+                                  if (notif.referenceType === 'LabOrder' || notif.referenceType === 'Prescription') {
                                     setActiveTab('clinical');
                                   }
                                 }
                               }}
-                              className={`px-4 py-3 border-b border-slate-50 text-xs text-left cursor-pointer hover:bg-slate-50 transition-colors ${!notif.read ? 'bg-indigo-50/30 font-medium' : ''}`}
+                              className={`px-4 py-3 border-b border-slate-50 text-xs text-left cursor-pointer hover:bg-slate-50 transition-colors ${!notif.isRead ? 'bg-indigo-50/30 font-medium' : ''}`}
                             >
-                              <div className="text-slate-700">{notif.message}</div>
+                              <div className="font-semibold text-slate-800">{notif.title}</div>
+                              <div className="text-slate-700 mt-0.5">{notif.message}</div>
                               <div className="text-[10px] text-slate-400 mt-1">
                                 {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </div>
@@ -2419,6 +2435,19 @@ export default function Home() {
                       )}
                     </div>
                     <div>
+                      <label className="block text-xs font-semibold text-slate-600">Assign to Pharmacy</label>
+                      <select
+                        value={rxForm.assignedPharmacyId}
+                        onChange={(e) => setRxForm({ ...rxForm, assignedPharmacyId: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white"
+                      >
+                        <option value="">Any Available Pharmacy (Default)</option>
+                        {pharmaciesList.map(pharm => (
+                          <option key={pharm.id} value={pharm.id}>{pharm.fullName} (ID: {pharm.id})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-xs font-semibold text-slate-600">Medication Name</label>
                       <input
                         type="text"
@@ -2538,6 +2567,19 @@ export default function Home() {
                       />
                     </div>
                     <div>
+                      <label className="block text-xs font-semibold text-slate-600">Assign to Laboratory</label>
+                      <select
+                        value={labForm.assignedLabId}
+                        onChange={(e) => setLabForm({ ...labForm, assignedLabId: e.target.value })}
+                        className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm bg-white"
+                      >
+                        <option value="">Any Available Lab (Default)</option>
+                        {labsList.map(lab => (
+                          <option key={lab.id} value={lab.id}>{lab.fullName} (ID: {lab.id})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-xs font-semibold text-slate-600">Special Instructions</label>
                       <textarea
                         value={labForm.notes}
@@ -2565,14 +2607,20 @@ export default function Home() {
                           <div>
                             <p className="font-semibold text-slate-800">{lab.patientName}</p>
                             <p className="text-sm text-slate-600 mt-0.5">{lab.testName}</p>
-                            {lab.notes && <p className="text-xs text-slate-500 mt-1 italic">"{lab.notes}"</p>}
+                            {lab.doctorName && (
+                              <p className="text-xs text-slate-400 mt-0.5">Ordered by: {lab.doctorName}{lab.doctorSpecialization ? ` · ${lab.doctorSpecialization}` : ''}</p>
+                            )}
+                            {lab.notes && <p className="text-xs text-slate-500 mt-1 italic">{lab.notes}</p>}
                           </div>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${lab.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                            lab.status === 'processing' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                              'bg-amber-50 text-amber-800 border-amber-200'
-                            }`}>
-                            {lab.status}
-                          </span>
+                          <div className="flex items-center space-x-2">
+                             <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${lab.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : lab.status === 'processing' ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>{lab.status}</span>
+                             {lab.status === 'completed' && (
+                               <>
+                                 <button className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700" onClick={async () => { await api.notifyLabOrder(lab.id, 'patient'); showToast('Patient notified', false); }}>Notify Patient</button>
+                                 <button className="px-3 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700" onClick={() => window.open(`/lab/report/print/${lab.id}`, '_blank')}>Print</button>
+                               </>
+                             )}
+                           </div>
                         </div>
                       ))}
                     </div>
@@ -3365,6 +3413,7 @@ export default function Home() {
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Patient Name</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Test Ordered</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Ordered By</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Actions</th>
                       </tr>
@@ -3375,6 +3424,10 @@ export default function Home() {
                           <td className="px-4 py-3 text-sm text-slate-900 font-medium">{lab.patientName || lab.patientId}</td>
                           <td className="px-4 py-3 text-sm text-slate-800">{lab.testName}</td>
                           <td className="px-4 py-3 text-sm">
+                            <span className="text-slate-800 font-medium">{lab.doctorName || lab.doctorId}</span>
+                            {lab.doctorSpecialization && <span className="block text-xs text-slate-400">{lab.doctorSpecialization}</span>}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
                             <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${lab.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                               lab.status === 'processing' ? 'bg-blue-50 text-blue-800 border-blue-200' :
                                 'bg-amber-50 text-amber-800 border-amber-200'
@@ -3382,22 +3435,74 @@ export default function Home() {
                               {lab.status}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right text-sm space-x-2">
-                            {lab.status === 'ordered' && (
-                              <button
-                                onClick={() => handleUpdateLabStatus(lab.id, 'processing')}
-                                className="bg-blue-600 text-white rounded px-2 py-1 text-xs hover:bg-blue-700"
-                              >
-                                Begin Process
-                              </button>
-                            )}
-                            {lab.status === 'processing' && (
-                              <button
-                                onClick={() => handleUpdateLabStatus(lab.id, 'completed')}
-                                className="bg-emerald-600 text-white rounded px-2 py-1 text-xs hover:bg-emerald-700"
-                              >
-                                Mark Completed
-                              </button>
+                          <td className="px-4 py-3 text-right text-sm space-y-2">
+                            <div className="flex justify-end space-x-2">
+                              {lab.status === 'ordered' && (
+                                <button
+                                  onClick={() => handleUpdateLabStatus(lab.id, 'processing')}
+                                  className="bg-blue-600 text-white rounded px-2 py-1 text-xs hover:bg-blue-700"
+                                >
+                                  Begin Process
+                                </button>
+                              )}
+                              {lab.status === 'processing' && (
+                                <button
+                                  onClick={() => handleUpdateLabStatus(lab.id, 'completed')}
+                                  className="bg-emerald-600 text-white rounded px-2 py-1 text-xs hover:bg-emerald-700"
+                                >
+                                  Mark Completed
+                                </button>
+                              )}
+                              {lab.status === 'completed' && (
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await api.undoLabOrderComplete(lab.id);
+                                        showToast('Status reverted to processing', true);
+                                        await fetchData();
+                                      } catch (err) {
+                                        showToast('Failed to revert status', false);
+                                      }
+                                    }}
+                                    className="bg-amber-50 text-amber-700 border border-amber-200 rounded px-2 py-1 text-xs hover:bg-amber-100 font-medium"
+                                  >
+                                    Undo Complete
+                                  </button>
+                                  <select 
+                                    onChange={async (e) => {
+                                      if (!e.target.value) return;
+                                      const val = e.target.value as 'doctor' | 'patient' | 'both';
+                                      try {
+                                        await api.notifyLabOrder(lab.id, val);
+                                        showToast('Notification sent successfully', true);
+                                        await fetchData();
+                                      } catch (err) {
+                                        showToast('Failed to send notification or duplicate', false);
+                                      }
+                                      e.target.value = ''; // reset dropdown
+                                    }}
+                                    className="text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                  >
+                                    <option value="">Send...</option>
+                                    <option value="doctor">Send to Doctor</option>
+                                    <option value="patient">Send to Patient</option>
+                                    <option value="both">Send to Both</option>
+                                  </select>
+                                </>
+                              )}
+                            </div>
+                            
+                            {/* Delivery Timestamps */}
+                            {lab.status === 'completed' && (lab.doctorNotifiedAt || lab.patientNotifiedAt) && (
+                              <div className="flex flex-col items-end text-[10px] text-slate-400 mt-1">
+                                {lab.doctorNotifiedAt && (
+                                  <span>✓ Sent to Doctor at {new Date(lab.doctorNotifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                )}
+                                {lab.patientNotifiedAt && (
+                                  <span>✓ Sent to Patient at {new Date(lab.patientNotifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                )}
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -3459,6 +3564,7 @@ export default function Home() {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Patient Name</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Medication Details</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Ordered By</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Action</th>
                         </tr>
@@ -3468,6 +3574,9 @@ export default function Home() {
                           <tr key={rx.id}>
                             <td className="px-4 py-3 text-sm text-slate-900 font-medium">{rx.patientName || rx.patientId}</td>
                             <td className="px-4 py-3 text-sm text-slate-800">{rx.medicationDetails}</td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className="text-slate-800 font-medium">{rx.doctorName || rx.doctorId}</span>
+                            </td>
                             <td className="px-4 py-3 text-sm">
                               <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold border ${rx.status === 'dispensed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
                                 }`}>

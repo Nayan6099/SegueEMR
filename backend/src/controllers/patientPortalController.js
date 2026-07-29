@@ -61,10 +61,11 @@ class PatientPortalController {
     try {
       const patientId = req.user.role === 'patient' ? req.user.patientId : req.query.patientId;
       const query = `
-        SELECT mr.*, p.medication_details 
+        SELECT mr.*, 
+          (SELECT string_agg(m.name, ', ') FROM "Medication" m WHERE m."prescriptionId" = p.id) as medication_details
         FROM medication_refills mr
-        JOIN prescriptions p ON mr.prescription_id = p.id
-        WHERE p.patient_id = $1
+        JOIN "Prescription" p ON mr.prescription_id = p.id
+        WHERE p."patientId" = $1
       `;
       const result = await db.query(query, [patientId]);
       return res.json({ success: true, data: result.rows });
@@ -279,6 +280,24 @@ class PatientPortalController {
       return res.status(500).json({ success: false, error: err.message });
     }
   }
+    // --- Lab Reports (Patient) ---
+    async getPatientLabReports(req, res) {
+        try {
+            const patientId = req.user.role === 'patient' ? req.user.patientId : req.user.patientId;
+            const labOrders = await db.query(
+                `SELECT lo.id, lo.testName, lo.resultSummary, d.name as doctorName, lo.createdAt
+                 FROM "LabOrder" lo
+                 LEFT JOIN "Doctor" d ON lo.doctorId = d.id
+                 WHERE lo.patientId = $1 AND lo.status = 'completed'`,
+                [patientId]
+            );
+            return res.json({ success: true, data: labOrders.rows });
+        } catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
 }
 
-module.exports = new PatientPortalController();
+
+
+    module.exports = new PatientPortalController();

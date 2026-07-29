@@ -86,10 +86,12 @@ router.post('/lab/result', async (req, res) => {
     if (patientObj && patientObj.userId) {
       await prisma.notification.create({
         data: {
-          recipientId: patientObj.userId,
+          userId: patientObj.userId,
+          title: 'Lab Result Ready',
           message: `Lab result ready for ${labOrder.testName}`,
-          recordType: 'LabOrder',
-          recordId: labOrder.id
+          type: 'lab_result',
+          referenceType: 'LabOrder',
+          referenceId: labOrder.id
         }
       });
     }
@@ -97,10 +99,12 @@ router.post('/lab/result', async (req, res) => {
     if (doctorObj && doctorObj.userId) {
       await prisma.notification.create({
         data: {
-          recipientId: doctorObj.userId,
+          userId: doctorObj.userId,
+          title: 'Lab Result Ready',
           message: `Lab result ready for ${labOrder.patientName} (${labOrder.testName})`,
-          recordType: 'LabOrder',
-          recordId: labOrder.id
+          type: 'lab_result',
+          referenceType: 'LabOrder',
+          referenceId: labOrder.id
         }
       });
     }
@@ -169,10 +173,12 @@ router.post('/pharmacy/dispense', async (req, res) => {
     if (patientObj && patientObj.userId) {
       await prisma.notification.create({
         data: {
-          recipientId: patientObj.userId,
+          userId: patientObj.userId,
+          title: 'Prescription Dispensed',
           message: 'Your prescription has been dispensed',
-          recordType: 'Prescription',
-          recordId: prescription.id
+          type: 'prescription_dispense',
+          referenceType: 'Prescription',
+          referenceId: prescription.id
         }
       });
     }
@@ -180,10 +186,12 @@ router.post('/pharmacy/dispense', async (req, res) => {
     if (doctorObj && doctorObj.userId) {
       await prisma.notification.create({
         data: {
-          recipientId: doctorObj.userId,
+          userId: doctorObj.userId,
+          title: 'Prescription Dispensed',
           message: `Prescription dispensed for ${prescription.patientName}`,
-          recordType: 'Prescription',
-          recordId: prescription.id
+          type: 'prescription_dispense',
+          referenceType: 'Prescription',
+          referenceId: prescription.id
         }
       });
     }

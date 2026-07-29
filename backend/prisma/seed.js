@@ -82,13 +82,13 @@ async function main() {
     // 5. Seed Lab Orders & Prescriptions for the completed patient
     await prisma.labOrder.upsert({
         where: { id: 'LAB-001' },
-        update: {},
-        create: { id: 'LAB-001', patientId: 'PAT-003', patientName: 'Charlie Davis', doctorId: doc.id, testName: 'Complete Blood Count (CBC)', status: 'processing', notes: 'Urgent' }
+        update: { assignedLabId: 'labtech1' },
+        create: { id: 'LAB-001', patientId: 'PAT-003', patientName: 'Charlie Davis', doctorId: doc.id, testName: 'Complete Blood Count (CBC)', status: 'processing', notes: 'Urgent', assignedLabId: 'labtech1' }
     });
 
     await prisma.prescription.upsert({
         where: { id: 'RX-001' },
-        update: {},
+        update: { assignedPharmacyId: 'pharmacist1' },
         create: { 
             id: 'RX-001', 
             patientId: 'PAT-003', 
@@ -96,6 +96,7 @@ async function main() {
             doctorId: doc.id, 
             doctorName: 'Dr. Smith', 
             status: 'pending',
+            assignedPharmacyId: 'pharmacist1',
             medications: {
                 create: [
                     { name: 'Azithromycin 500mg', dosage: '1 tablet', frequency: 'daily', duration: '5 days' }

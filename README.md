@@ -32,6 +32,8 @@ In this version, SegueEMR has migrated from its legacy Hyperledger Fabric blockc
 | Administrative Staff | User management, records oversight, activity logs |
 | Healthcare Management | Organization-wide analytics dashboard |
 
+> **Multi-Tenant Provider Portal:** Doctors can seamlessly route **Lab Orders** and **Prescriptions** to specific vendors. Lab Technicians and Pharmacists have dedicated, isolated queues to process their assigned requests.
+
 ---
 
 ## Prerequisites
@@ -59,7 +61,7 @@ cd SegueEMR
 Create a `.env` file in the `backend/` directory based on `backend/.env.example`:
 
 ```ini
-PORT=3000
+PORT=5000
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/segueemr_db?schema=public"
 
 # Azure Blob Storage Configuration
@@ -97,7 +99,7 @@ npx prisma db push
 npm run dev
 ```
 
-The backend server will launch at `http://localhost:3000`.
+The backend server will launch at `http://localhost:5000`.
 
 ### Step 5 — Run the Frontend Portal
 
@@ -121,6 +123,10 @@ SegueEMR uses a query-param or header-based authentication simulation in develop
 |------|--------------------|--------------|
 | Patient | patient123 | patient |
 | Doctor | dr.smith | hospital |
+| Receptionist | receptionist1 | hospital |
+| Nurse | nurse1 | hospital |
+| Lab Technician | labtech1 | external_lab |
+| Pharmacist | pharmacist1 | external_pharmacy |
 
 ---
 
@@ -138,3 +144,12 @@ SegueEMR/
 ├── docs/                       # Architecture & API documentation
 └── frontend/                   # Next.js React Portal
 ```
+## Running with Docker
+
+You can spin up the entire application stack (Frontend, Backend, and PostgreSQL database) using Docker Compose:
+
+```bash
+docker compose up --build -d
+```
+
+This will automatically build the images and run the containers in detached mode.

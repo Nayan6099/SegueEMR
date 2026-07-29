@@ -1,151 +1,142 @@
+/**
+ * Authentication Routes
+ *
+ * POST /api/auth/login  — Authenticate and return JWT
+ *
+ * Security notes:
+ * - Demo bypass is ONLY available when DEMO_MODE=true in environment (never in production)
+ * - Debug console.log statements removed — use logger instead
+ * - Raw error messages never sent to client
+ * - JWT_SECRET length enforced at server startup (server.js)
+ */
+
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const prisma = require('../config/prisma');
+const bcrypt  = require('bcryptjs');
+const jwt     = require('jsonwebtoken');
+const prisma  = require('../config/prisma');
+const logger  = require('../utils/logger');
+const { AppError, ERROR_CODES } = require('../utils/errors');
+const { assertRequired } = require('../utils/validators');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here';
+const JWT_SECRET = process.env.JWT_SECRET;
+const DEMO_MODE  = process.env.DEMO_MODE === 'true' && process.env.NODE_ENV !== 'production';
+
+if (DEMO_MODE) {
+  logger.warn('[AUTH] DEMO_MODE is enabled — bypass login is active. Disable for production.');
+}
 
 /**
  * @route   POST /api/auth/login
  * @desc    Authenticate user and return JWT
+ * @access  Public (rate-limited by authLimiter in server.js)
  */
-router.post('/login', async (req, res) => {
+router.post('/login', async (req, res, next) => {
   try {
-    console.log('[Auth Debug] Login request received body:', req.body);
-    // Note: extracted `role` to support the frontend dropdown selection
     const { userId, email, password, role } = req.body;
     const loginIdentifier = (userId || email || '').trim();
 
-    // --- DEMO BYPASS START ---
-    if (password === 'demo') {
-      const bypassRole = role || 'receptionist'; // Fallback if missing
+    // ── DEMO BYPASS ─────────────────────────────────────────────────────────
+    // Only active when DEMO_MODE=true is set AND we are NOT in production.
+    if (DEMO_MODE && password === 'demo') {
+      const bypassRole = role || 'receptionist';
+
+      // Resolve against real DB records when possible for FK safety
+      let demoPatientId = null;
+      let demoDoctorId  = null;
+
+      if (bypassRole === 'patient') {
+        const pat = await prisma.patient.findUnique({ where: { id: loginIdentifier } })
+          || await prisma.patient.findFirst({ where: { userId: loginIdentifier } });
+        demoPatientId = pat?.id || loginIdentifier;
+      } else if (bypassRole === 'doctor') {
+        const doc = await prisma.doctor.findUnique({ where: { id: loginIdentifier } })
+          || await prisma.doctor.findUnique({ where: { userId: loginIdentifier } });
+        demoDoctorId = doc?.id || null;
+      }
 
       const demoUser = {
-        userId: loginIdentifier || 'demo_user',
-        username: loginIdentifier || 'demo_user',
-        email: `${loginIdentifier || 'demo'}@segueemr.local`,
-        role: bypassRole,
-        fullName: `Demo ${bypassRole.toUpperCase()}`,
-        patientId: bypassRole === 'patient' ? (loginIdentifier.startsWith('PAT-') ? loginIdentifier.trim() : `PT-${loginIdentifier.replace(/\s+/g, '').toLowerCase()}`) : null,
-        doctorId: bypassRole === 'doctor' ? loginIdentifier.replace(/\s+/g, '').toLowerCase() : null,
-        orgName: bypassRole === 'patient' ? 'patient' : 'hospital'
+        userId:    loginIdentifier || 'demo_user',
+        username:  loginIdentifier || 'demo_user',
+        email:     `${loginIdentifier || 'demo'}@segueemr.local`,
+        role:      bypassRole,
+        fullName:  `Demo ${bypassRole.charAt(0).toUpperCase() + bypassRole.slice(1)}`,
+        patientId: demoPatientId,
+        doctorId:  demoDoctorId,
+        orgName:   bypassRole === 'patient' ? 'patient' : 'hospital',
       };
 
-      console.log(`[DEMO MODE] Bypassing auth for ${demoUser.username} as ${demoUser.role}`);
+      logger.info('[AUTH] Demo login', { userId: demoUser.userId, role: demoUser.role });
 
       const token = jwt.sign(demoUser, JWT_SECRET, { expiresIn: '24h' });
-
-      return res.json({
-        success: true,
-        message: 'Demo login successful',
-        token,
-        user: demoUser
-      });
+      return res.json({ success: true, message: 'Demo login successful', token, user: demoUser });
     }
-    // --- DEMO BYPASS END ---
+    // ── END DEMO BYPASS ──────────────────────────────────────────────────────
 
-    if (!loginIdentifier || !password) {
-      console.log('[Auth Debug] Missing credentials:', { loginIdentifier, password: !!password });
-      return res.status(400).json({
-        success: false,
-        error: 'Missing credentials',
-        message: 'Username/Email and Password are required'
-      });
+    // Validate required fields
+    assertRequired(['password'], req.body);
+    if (!loginIdentifier) {
+      throw new AppError(ERROR_CODES.MISSING_FIELDS, 'Username or email is required');
     }
 
-    // Lookup user in DB
+    // Look up user (by id, username, or email)
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { id: loginIdentifier },
+          { id:       loginIdentifier },
           { username: loginIdentifier },
-          { email: loginIdentifier }
-        ]
-      }
+          { email:    loginIdentifier },
+        ],
+      },
     });
 
     if (!user) {
-      console.log('[Auth Debug] User lookup failed for:', loginIdentifier);
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication failed',
-        message: 'Invalid username/email or password'
-      });
+      // Use same message for "not found" and "wrong password" to prevent user enumeration
+      throw new AppError(ERROR_CODES.AUTH_FAILED, `User not found: ${loginIdentifier}`);
     }
 
-    console.log('[Auth Debug] User found in DB:', { id: user.id, username: user.username, role: user.role });
-
-    // Verify password
     const isMatch = await bcrypt.compare(password, user.passwordHash);
-    console.log('[Auth Debug] Bcrypt password match result:', isMatch);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication failed',
-        message: 'Invalid username/email or password'
-      });
+      throw new AppError(ERROR_CODES.AUTH_FAILED, `Bad password for user: ${user.id}`);
     }
 
-    // Fetch related identifiers for authorization convenience
+    // Resolve FK identifiers for the JWT payload
     let patientId = null;
-    let doctorId = null;
+    let doctorId  = null;
 
     if (user.role === 'patient') {
-      const patient = await prisma.patient.findUnique({
-        where: { userId: user.id }
-      });
-      if (patient) {
-        patientId = patient.id;
-      }
+      const patient = await prisma.patient.findFirst({ where: { userId: user.id } });
+      patientId = patient?.id || null;
     } else if (user.role === 'doctor') {
-      const doctor = await prisma.doctor.findUnique({
-        where: { userId: user.id }
-      });
-      if (doctor) {
-        doctorId = doctor.id;
-      }
+      const doctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
+      doctorId = doctor?.id || null;
     }
 
-    // Create JWT token
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        fullName: user.fullName,
-        patientId,
-        doctorId,
-        orgName: user.role === 'patient' ? 'patient' : 'hospital'
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    const payload = {
+      userId:   user.id,
+      username: user.username,
+      email:    user.email,
+      role:     user.role,
+      fullName: user.fullName,
+      status:   user.status,
+      patientId,
+      doctorId,
+      orgName:  user.role === 'patient' ? 'patient' : 'hospital',
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+
+    logger.info('[AUTH] Login successful', { userId: user.id, role: user.role });
 
     return res.json({
       success: true,
       message: 'Logged in successfully',
       token,
-      user: {
-        userId: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        fullName: user.fullName,
-        patientId,
-        doctorId,
-        orgName: user.role === 'patient' ? 'patient' : 'hospital'
-      }
+      user: payload,
     });
 
   } catch (err) {
-    console.error('Login error:', err);
-    return res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: err.message
-    });
+    next(err); // Delegates to global errorHandler
   }
 });
 

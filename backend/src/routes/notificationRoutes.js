@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get('/', notificationController.listNotifications);
+router.get('/unread-count', notificationController.getUnreadCount);
 router.put('/read-all', notificationController.markAllRead);
 router.put('/:id/read', notificationController.markRead);
 

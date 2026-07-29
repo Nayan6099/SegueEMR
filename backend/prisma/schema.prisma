@@ -134,6 +134,7 @@ model Prescription {
   updatedAt           DateTime     @default(now()) @updatedAt
   fhirResourceId      String?
   externalReferenceId String?
+  assignedPharmacyId  String?
   medications         Medication[]
   doctor              Doctor       @relation(fields: [doctorId], references: [id])
   patient             Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -150,23 +151,26 @@ model Medication {
 }
 
 model LabOrder {
-  id                  String   @id @default(uuid())
+  id                  String    @id @default(uuid())
   patientId           String
   patientName         String
   doctorId            String
   testName            String
-  status              String   @default("pending")
+  status              String    @default("pending")
   notes               String?
   resultSummary       String?
-  critical            Boolean  @default(false)
+  critical            Boolean   @default(false)
   resultFields        String?
   processedBy         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @default(now()) @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+  doctorNotifiedAt    DateTime?
+  patientNotifiedAt   DateTime?
   fhirResourceId      String?
   externalReferenceId String?
-  doctor              Doctor   @relation(fields: [doctorId], references: [id])
-  patient             Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  assignedLabId       String?
+  doctor              Doctor    @relation(fields: [doctorId], references: [id])
+  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model Invoice {
@@ -221,11 +225,13 @@ model Vitals {
 }
 
 model Notification {
-  id          String   @id @default(uuid())
-  recipientId String
-  message     String
-  recordType  String
-  recordId    String
-  read        Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  message       String
+  type          String
+  referenceType String
+  referenceId   String
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
 }
