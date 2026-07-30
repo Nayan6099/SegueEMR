@@ -1,4 +1,4 @@
-const { BlobServiceClient } = require('@azure/storage-blob');
+const { BlobServiceClient, BlobSASPermissions } = require('@azure/storage-blob');
 require('dotenv').config();
 
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
@@ -100,8 +100,32 @@ async function deleteBlob(blobName) {
   return response.succeeded;
 }
 
+async function generateSasUrl(blobName, expiresInMinutes = 5) {
+  if (!containerClient) {
+    console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock SAS URL.');
+    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}?sas=demo-token`;
+  }
+
+  try {
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    const expiresOn = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+    
+    // generateSasUrl is available on the client when created from a connection string
+    const sasUrl = await blockBlobClient.generateSasUrl({
+      permissions: BlobSASPermissions.parse("r"),
+      expiresOn: expiresOn
+    });
+    
+    return sasUrl;
+  } catch (err) {
+    console.warn(`[DEMO FALLBACK] SAS URL generation failed (${err.code}). Returning mock URL.`);
+    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}?sas=demo-token`;
+  }
+}
+
 module.exports = {
   uploadBlob,
   downloadBlob,
   deleteBlob,
+  generateSasUrl,
 };

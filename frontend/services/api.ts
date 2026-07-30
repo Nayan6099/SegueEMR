@@ -106,6 +106,8 @@ export interface LabOrder {
   updatedAt: string;
   doctorNotifiedAt?: string;
   patientNotifiedAt?: string;
+  pdfBlobName?: string;
+  pdfBlobUrl?: string;
 }
 
 export interface Invoice {
@@ -443,6 +445,26 @@ const api = {
 
   notifyLabOrder: async (orderId: string, target: 'doctor' | 'patient' | 'both'): Promise<ApiResponse<unknown>> => {
     const { data } = await apiClient.post(`/lab/orders/${orderId}/notify`, { target });
+    return data;
+  },
+
+  uploadLabPdfReport: async (orderId: string, file: File): Promise<ApiResponse<LabOrder>> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await apiClient.post(`/lab/orders/${orderId}/report`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    if (data?.success && data.data) data.data = normalizeLabOrder(data.data);
+    return data;
+  },
+
+  sendLabReport: async (orderId: string, recipient: 'doctor' | 'patient' | 'both'): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post(`/lab/orders/${orderId}/send`, { recipient });
+    return data;
+  },
+
+  downloadLabReport: async (orderId: string): Promise<ApiResponse<{ sasUrl: string }>> => {
+    const { data } = await apiClient.get(`/lab/reports/${orderId}/download`);
     return data;
   },
 

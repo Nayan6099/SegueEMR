@@ -420,6 +420,16 @@ export default function Home() {
 
   // UI state
   const [loading, setLoading] = useState(false);
+  const [uploadingLabs, setUploadingLabs] = useState<Record<string, boolean>>({});
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    actionLabel?: string;
+    type?: 'primary' | 'danger';
+  } | null>(null);
+  const [sendReportModal, setSendReportModal] = useState<{ isOpen: boolean; labId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
 
   const showToast = (message: string, isError = false) => {
@@ -1322,7 +1332,7 @@ export default function Home() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8">
         {toast && (
-          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.isError ? 'bg-red-600' : 'bg-emerald-600'}`}>
+          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.isError ? 'bg-red-600' : 'bg-green-600'}`}>
             {toast.isError ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
             <span>{toast.message}</span>
           </div>
@@ -1421,7 +1431,7 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Toast Notification */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.isError ? 'bg-red-600' : 'bg-emerald-600'}`}>
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.isError ? 'bg-red-600' : 'bg-green-600'}`}>
           {toast.isError ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
           <span>{toast.message}</span>
         </div>
@@ -1487,9 +1497,24 @@ export default function Home() {
                           notifications.map(notif => (
                             <div
                               key={notif.id}
-                              onClick={() => {
+                              onClick={async () => {
                                 handleMarkNotificationRead(notif.id);
                                 setShowNotificationsDropdown(false);
+                                
+                                if (notif.type === 'lab_report') {
+                                  try {
+                                    const res = await api.downloadLabReport(notif.referenceId);
+                                    if (res.success && res.sasUrl) {
+                                      window.open(res.sasUrl, '_blank');
+                                    } else {
+                                      showToast('Failed to retrieve secure report', false);
+                                    }
+                                  } catch (err) {
+                                    showToast('Error downloading report', false);
+                                  }
+                                  return;
+                                }
+
                                 if (currentUser.role === 'doctor') {
                                   if (notif.referenceType === 'LabOrder') {
                                     setActiveTab('labs');
@@ -3439,15 +3464,42 @@ export default function Home() {
                             <div className="flex justify-end space-x-2">
                               {lab.status === 'ordered' && (
                                 <button
-                                  onClick={() => handleUpdateLabStatus(lab.id, 'processing')}
+                                  onClick={() => setConfirmDialog({
+                                    isOpen: true,
+                                    title: 'Begin Process',
+                                    message: 'Are you sure you want to begin processing this lab order?',
+                                    onConfirm: () => handleUpdateLabStatus(lab.id, 'processing'),
+                                    actionLabel: 'Begin'
+                                  })}
                                   className="bg-blue-600 text-white rounded px-2 py-1 text-xs hover:bg-blue-700"
                                 >
                                   Begin Process
                                 </button>
                               )}
+                              {lab.status === 'pending' && (
+                                <button
+                                  onClick={() => setConfirmDialog({
+                                    isOpen: true,
+                                    title: 'Start Processing',
+                                    message: 'Are you sure you want to start processing this pending order?',
+                                    onConfirm: () => handleUpdateLabStatus(lab.id, 'processing'),
+                                    actionLabel: 'Start'
+                                  })}
+                                  className="bg-indigo-600 text-white rounded px-2 py-1 text-xs hover:bg-indigo-700"
+                                >
+                                  Start Processing
+                                </button>
+                              )}
                               {lab.status === 'processing' && (
                                 <button
-                                  onClick={() => handleUpdateLabStatus(lab.id, 'completed')}
+                                  onClick={() => setConfirmDialog({
+                                    isOpen: true,
+                                    title: 'Mark Completed',
+                                    message: 'Are you sure this lab order is fully processed and ready to be marked as completed?',
+                                    onConfirm: () => handleUpdateLabStatus(lab.id, 'completed'),
+                                    actionLabel: 'Mark Completed',
+                                    type: 'primary'
+                                  })}
                                   className="bg-emerald-600 text-white rounded px-2 py-1 text-xs hover:bg-emerald-700"
                                 >
                                   Mark Completed
@@ -3456,39 +3508,96 @@ export default function Home() {
                               {lab.status === 'completed' && (
                                 <>
                                   <button
-                                    onClick={async () => {
-                                      try {
-                                        await api.undoLabOrderComplete(lab.id);
-                                        showToast('Status reverted to processing', true);
-                                        await fetchData();
-                                      } catch (err) {
-                                        showToast('Failed to revert status', false);
-                                      }
-                                    }}
+                                    onClick={() => setConfirmDialog({
+                                      isOpen: true,
+                                      title: 'Undo Complete',
+                                      message: 'Are you sure you want to undo? This will permanently delete the uploaded PDF report and revoke access.',
+                                      onConfirm: async () => {
+                                        try {
+                                          await api.undoLabOrderComplete(lab.id);
+                                          showToast('Status reverted to processing');
+                                          await fetchData();
+                                        } catch (err) {
+                                          showToast('Failed to revert status', true);
+                                        }
+                                      },
+                                      actionLabel: 'Undo Complete',
+                                      type: 'danger'
+                                    })}
                                     className="bg-amber-50 text-amber-700 border border-amber-200 rounded px-2 py-1 text-xs hover:bg-amber-100 font-medium"
                                   >
                                     Undo Complete
                                   </button>
-                                  <select 
-                                    onChange={async (e) => {
-                                      if (!e.target.value) return;
-                                      const val = e.target.value as 'doctor' | 'patient' | 'both';
-                                      try {
-                                        await api.notifyLabOrder(lab.id, val);
-                                        showToast('Notification sent successfully', true);
-                                        await fetchData();
-                                      } catch (err) {
-                                        showToast('Failed to send notification or duplicate', false);
-                                      }
-                                      e.target.value = ''; // reset dropdown
-                                    }}
-                                    className="text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                  >
-                                    <option value="">Send...</option>
-                                    <option value="doctor">Send to Doctor</option>
-                                    <option value="patient">Send to Patient</option>
-                                    <option value="both">Send to Both</option>
-                                  </select>
+                                  {!lab.pdfBlobUrl ? (
+                                    <div className="relative inline-block">
+                                      <input 
+                                        type="file"
+                                        accept="application/pdf"
+                                        disabled={uploadingLabs[lab.id]}
+                                        className={`absolute inset-0 w-full h-full opacity-0 ${uploadingLabs[lab.id] ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                        title="Upload PDF Report"
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            if (file.size > 10 * 1024 * 1024) {
+                                              showToast('File size must be less than 10MB', false);
+                                              return;
+                                            }
+                                            setUploadingLabs(prev => ({ ...prev, [lab.id]: true }));
+                                            try {
+                                              await api.uploadLabPdfReport(lab.id, file);
+                                              showToast('PDF uploaded successfully');
+                                              await fetchData();
+                                              setSendReportModal({ isOpen: true, labId: lab.id });
+                                            } catch (err) {
+                                              showToast('Failed to upload PDF', false);
+                                            } finally {
+                                              setUploadingLabs(prev => ({ ...prev, [lab.id]: false }));
+                                            }
+                                          }
+                                        }}
+                                      />
+                                      <button className={`bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-2 py-1 text-xs font-medium pointer-events-none flex items-center gap-1 ${uploadingLabs[lab.id] ? 'opacity-75' : 'hover:bg-indigo-100'}`}>
+                                        {uploadingLabs[lab.id] ? (
+                                          <>
+                                            <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                                            Uploading...
+                                          </>
+                                        ) : (
+                                          'Upload PDF'
+                                        )}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <select 
+                                      onChange={(e) => {
+                                        const val = e.target.value as 'doctor' | 'patient' | 'both';
+                                        if (!val) return;
+                                        setConfirmDialog({
+                                          isOpen: true,
+                                          title: 'Send Report',
+                                          message: `Are you sure you want to send this report to the ${val}? They will receive a notification immediately.`,
+                                          onConfirm: async () => {
+                                            try {
+                                              await api.sendLabReport(lab.id, val);
+                                              showToast('Notification sent successfully');
+                                              await fetchData();
+                                            } catch (err) {
+                                              showToast('Failed to send notification or duplicate', true);
+                                            }
+                                          },
+                                          actionLabel: 'Send'
+                                        });
+                                        e.target.value = ''; // reset dropdown immediately
+                                      }}
+                                      className="text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    >
+                                      <option value="">Send...</option>
+                                      <option value="doctor">Send to Doctor</option>
+                                      <option value="patient">Send to Patient</option>
+                                      <option value="both">Send to Both</option>
+                                    </select>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -4023,6 +4132,110 @@ export default function Home() {
         )}
 
       </main>
+
+      {/* Confirm Modal */}
+      {confirmDialog && confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden transform transition-all">
+            <div className={`px-6 py-4 border-b ${confirmDialog.type === 'danger' ? 'border-rose-100 bg-rose-50' : 'border-slate-100 bg-slate-50'}`}>
+              <h3 className={`text-lg font-bold ${confirmDialog.type === 'danger' ? 'text-rose-700' : 'text-slate-900'}`}>
+                {confirmDialog.title}
+              </h3>
+            </div>
+            <div className="px-6 py-5 text-sm text-slate-600">
+              {confirmDialog.message}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmDialog({ ...confirmDialog, isOpen: false });
+                  confirmDialog.onConfirm();
+                }}
+                className={`px-4 py-2 text-sm font-semibold text-white rounded-lg ${confirmDialog.type === 'danger' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+              >
+                {confirmDialog.actionLabel || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Report Modal */}
+      {sendReportModal && sendReportModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden transform transition-all">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-900">
+                Share Report
+              </h3>
+            </div>
+            <div className="px-6 py-5 text-sm text-slate-600">
+              <p className="mb-4">PDF uploaded successfully! Who would you like to notify with the secure download link?</p>
+              <div className="space-y-2">
+                <button
+                  onClick={async () => {
+                    setSendReportModal(null);
+                    try {
+                      await api.sendLabReport(sendReportModal.labId, 'doctor');
+                      showToast('Sent to Doctor successfully');
+                      await fetchData();
+                    } catch (err) {
+                      showToast('Failed to send notification', true);
+                    }
+                  }}
+                  className="w-full text-left px-4 py-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors flex items-center gap-3 font-semibold text-slate-700"
+                >
+                  <span className="text-xl">👨‍⚕️</span> Send to Doctor Only
+                </button>
+                <button
+                  onClick={async () => {
+                    setSendReportModal(null);
+                    try {
+                      await api.sendLabReport(sendReportModal.labId, 'patient');
+                      showToast('Sent to Patient successfully');
+                      await fetchData();
+                    } catch (err) {
+                      showToast('Failed to send notification', true);
+                    }
+                  }}
+                  className="w-full text-left px-4 py-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors flex items-center gap-3 font-semibold text-slate-700"
+                >
+                  <span className="text-xl">🧑</span> Send to Patient Only
+                </button>
+                <button
+                  onClick={async () => {
+                    setSendReportModal(null);
+                    try {
+                      await api.sendLabReport(sendReportModal.labId, 'both');
+                      showToast('Sent to Both successfully');
+                      await fetchData();
+                    } catch (err) {
+                      showToast('Failed to send notification', true);
+                    }
+                  }}
+                  className="w-full text-left px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-3 font-semibold text-indigo-700 shadow-sm"
+                >
+                  <span className="text-xl">🚀</span> Send to Both (Recommended)
+                </button>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSendReportModal(null)}
+                className="px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                Skip for now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-6 mt-12">

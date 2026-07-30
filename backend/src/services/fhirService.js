@@ -236,10 +236,62 @@ async function syncLabOrder(labOrder) {
   }
 }
 
+async function createBinary(blobUrl, mimeType) {
+  const resourceData = {
+    resourceType: 'Binary',
+    contentType: mimeType,
+    data: Buffer.from(blobUrl).toString('base64')
+  };
+  const res = await syncResource('Binary', resourceData);
+  return res ? res.id : null;
+}
+
+async function createDocumentReference(labOrder, binaryId, pdfBlobUrl) {
+  const resourceData = {
+    resourceType: 'DocumentReference',
+    status: 'current',
+    docStatus: 'final',
+    type: {
+      coding: [{
+        system: 'http://loinc.org',
+        code: '11502-2',
+        display: 'Laboratory report'
+      }],
+      text: labOrder.testName || 'Laboratory Report'
+    },
+    subject: {
+      reference: `Patient/${labOrder.patientId}`
+    },
+    author: [{
+      reference: `Practitioner/${labOrder.doctorId}`
+    }],
+    content: [{
+      attachment: {
+        contentType: 'application/pdf',
+        url: binaryId ? `Binary/${binaryId}` : pdfBlobUrl,
+        title: `${labOrder.testName} Report`
+      }
+    }]
+  };
+  
+  if (labOrder.fhirResourceId) {
+    resourceData.context = {
+      related: [{
+        reference: `DiagnosticReport/${labOrder.fhirResourceId}`
+      }]
+    };
+  }
+
+  const res = await syncResource('DocumentReference', resourceData);
+  return res ? res.id : null;
+}
+
 module.exports = {
   syncResource,
   syncEHRRecord,
   syncAppointment,
   syncPrescription,
-  syncLabOrder
+  syncLabOrder,
+  createBinary,
+  createDocumentReference
 };

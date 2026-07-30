@@ -167,10 +167,24 @@ model LabOrder {
   doctorNotifiedAt    DateTime?
   patientNotifiedAt   DateTime?
   fhirResourceId      String?
+  fhirObservationIds  String[] @default([])
+  fhirDocumentReferenceId String?
+  pdfBlobName         String?
+  pdfBlobUrl          String?
+  fhirBinaryId        String?
   externalReferenceId String?
   assignedLabId       String?
   doctor              Doctor    @relation(fields: [doctorId], references: [id])
   patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+model LabAudit {
+  id          String   @id @default(uuid())
+  labOrderId  String
+  action      String
+  performedBy String
+  performedAt DateTime @default(now())
+  details     String?
 }
 
 model Invoice {
@@ -234,4 +248,66 @@ model Notification {
   referenceId   String
   isRead        Boolean  @default(false)
   createdAt     DateTime @default(now())
+}
+
+model Allergy {
+  id        String @id
+  patientId String @map("patient_id")
+  allergen  String
+  severity  String
+  reaction  String?
+
+  @@map("allergies")
+}
+
+model Problem {
+  id          String   @id
+  patientId   String   @map("patient_id")
+  code        String?
+  description String
+  onsetDate   String?  @map("onset_date")
+
+  @@map("problems")
+}
+
+model MedicationRefill {
+  id             String @id
+  prescriptionId String @map("prescription_id")
+  notes          String?
+  status         String @default("pending")
+
+  @@map("medication_refills")
+}
+
+model PatientForm {
+  id          String   @id
+  patientId   String   @map("patient_id")
+  formType    String   @map("form_type")
+  formData    String   @map("form_data")
+  status      String
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  @@map("patient_forms")
+}
+
+model Message {
+  id         String   @id
+  senderId   String   @map("sender_id")
+  receiverId String   @map("receiver_id")
+  content    String
+  sentAt     DateTime @default(now()) @map("sent_at")
+
+  @@map("messages")
+}
+
+model PatientApiKey {
+  id         String   @id
+  patientId  String   @map("patient_id")
+  apiKeyHash String   @map("api_key_hash")
+  name       String
+  status     String   @default("active")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("patient_api_keys")
 }

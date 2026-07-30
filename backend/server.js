@@ -120,6 +120,17 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Gracefully handle malformed JSON payloads
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    // Log the issue and respond with a clear message
+    const logger = require('./src/utils/logger');
+    logger.warn('Bad JSON payload', { error: err.message, path: req.path });
+    return res.status(400).json({ success: false, message: 'Invalid JSON payload', code: 'BAD_JSON' });
+  }
+  next(err);
+});
+
 // ─── Request Logging ──────────────────────────────────────────────────────────
 // Dev: colorized short format. Prod: combined (Apache-style) for log aggregators.
 app.use(morgan(isDev ? 'dev' : 'combined', {
