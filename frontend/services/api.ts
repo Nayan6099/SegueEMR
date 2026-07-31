@@ -307,9 +307,7 @@ const api = {
 
   // ── EHR Records ────────────────────────────────────────────────────────────
   uploadEHR: async (formData: FormData): Promise<ApiResponse<EMRRecord>> => {
-    const { data } = await apiClient.post('/ehr/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const { data } = await apiClient.post('/ehr/upload', formData);
     return data;
   },
 
@@ -413,9 +411,21 @@ const api = {
     return data;
   },
 
+  cancelPrescription: async (prescriptionId: string): Promise<ApiResponse<Prescription>> => {
+    const { data } = await apiClient.put(`/prescriptions/${prescriptionId}/cancel`);
+    if (data?.success && data.data) data.data = normalizePrescription(data.data);
+    return data;
+  },
+
+  undoPrescription: async (prescriptionId: string): Promise<ApiResponse<Prescription>> => {
+    const { data } = await apiClient.put(`/prescriptions/${prescriptionId}/undo`);
+    if (data?.success && data.data) data.data = normalizePrescription(data.data);
+    return data;
+  },
+
   // ── Lab Orders ────────────────────────────────────────────────────────────
   listLabOrders: async (params: Record<string, string> = {}): Promise<ApiResponse<LabOrder[]>> => {
-    const { data } = await apiClient.get('/lab/orders', { params });
+    const { data } = await apiClient.get('/lab/orders', { params: { ...params, _t: Date.now().toString() } });
     if (data?.success && Array.isArray(data.data)) {
       data.data = data.data.map(normalizeLabOrder);
     }
@@ -451,9 +461,7 @@ const api = {
   uploadLabPdfReport: async (orderId: string, file: File): Promise<ApiResponse<LabOrder>> => {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await apiClient.post(`/lab/orders/${orderId}/report`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    const { data } = await apiClient.post(`/lab/orders/${orderId}/report`, formData);
     if (data?.success && data.data) data.data = normalizeLabOrder(data.data);
     return data;
   },
@@ -581,9 +589,7 @@ const api = {
   },
 
   importCCDA: async (formData: FormData): Promise<ApiResponse<unknown>> => {
-    const { data } = await apiClient.post('/patient/ccda/import', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const { data } = await apiClient.post('/patient/ccda/import', formData);
     return data;
   },
 
@@ -656,8 +662,18 @@ const api = {
     return data;
   },
 
-  exportCSVUrl: (resource: string): string => {
-    return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/admin/export/${resource}`;
+  exportCSV: async (resource: string): Promise<void> => {
+    const { data } = await apiClient.get(`/admin/export/${resource}`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${resource}-export.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
   },
 
   // ── Organization ──────────────────────────────────────────────────────────

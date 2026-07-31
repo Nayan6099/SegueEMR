@@ -146,6 +146,60 @@ class PrescriptionController {
     }
   }
 
+  async cancelPrescription(req, res, next) {
+    try {
+      const { prescriptionId } = req.params;
+      const cancelledBy = req.user?.userId;
+
+      const existing = await prisma.prescription.findUnique({ where: { id: prescriptionId } });
+      if (!existing) {
+        throw new AppError(ERROR_CODES.RECORD_NOT_FOUND, `Prescription ${prescriptionId} not found`);
+      }
+      if (existing.status !== 'pending') {
+        throw new AppError(ERROR_CODES.VALIDATION_ERROR, `Prescription ${prescriptionId} is not in pending state`);
+      }
+
+      const prescription = await prisma.prescription.update({
+        where: { id: prescriptionId },
+        data:  { status: 'cancelled' },
+        include: { medications: true },
+      });
+
+      logActivity('PRESCRIPTION_CANCELLED', cancelledBy, { prescriptionId }, req.user?.role).catch(() => {});
+
+      return res.json({ success: true, data: mapPrescription(prescription) });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async undoDispense(req, res, next) {
+    try {
+      const { prescriptionId } = req.params;
+      const undoneBy = req.user?.userId;
+
+      const existing = await prisma.prescription.findUnique({ where: { id: prescriptionId } });
+      if (!existing) {
+        throw new AppError(ERROR_CODES.RECORD_NOT_FOUND, `Prescription ${prescriptionId} not found`);
+      }
+      if (existing.status === 'pending') {
+        throw new AppError(ERROR_CODES.VALIDATION_ERROR, `Prescription ${prescriptionId} is already pending`);
+      }
+
+      const prescription = await prisma.prescription.update({
+        where: { id: prescriptionId },
+        data:  { status: 'pending', dispensedBy: null, dispensedAt: null },
+        include: { medications: true },
+      });
+
+      logActivity('PRESCRIPTION_UNDO', undoneBy, { prescriptionId }, req.user?.role).catch(() => {});
+
+      return res.json({ success: true, data: mapPrescription(prescription) });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async listPrescriptions(req, res, next) {
     try {
       const { patientId, doctorId, status } = req.query;

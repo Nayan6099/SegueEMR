@@ -32,6 +32,13 @@ const mapLabOrder = (lab) => {
         processedBy: lab.processedBy,
         assignedLabId: lab.assignedLabId,
         externalReferenceId: lab.externalReferenceId,
+        // Include PDF blob fields so frontend can accurately reflect report state
+        pdfBlobName: lab.pdfBlobName || null,
+        pdfBlobUrl: lab.pdfBlobUrl || null,
+        fhirBinaryId: lab.fhirBinaryId || null,
+        fhirDocumentReferenceId: lab.fhirDocumentReferenceId || null,
+        doctorNotifiedAt: lab.doctorNotifiedAt || null,
+        patientNotifiedAt: lab.patientNotifiedAt || null,
         createdAt: lab.createdAt,
         updatedAt: lab.updatedAt
     };
@@ -398,6 +405,7 @@ class LabController {
             const processedBy = req.user.userId;
 
             if (!file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+            console.log('[DEBUG] uploadPdfReport - received file', { originalname: file.originalname, mimetype: file.mimetype, size: file.size });
 
             const labOrder = await prisma.labOrder.findUnique({ where: { id } });
             if (!labOrder) return res.status(404).json({ success: false, error: 'Lab order not found' });
@@ -410,7 +418,7 @@ class LabController {
             let fhirDocumentReferenceId = null;
 
             try {
-                fhirBinaryId = await fhirService.createBinary(pdfBlobUrl, file.mimetype);
+                fhirBinaryId = await fhirService.createBinary(file.buffer, file.mimetype);
                 fhirDocumentReferenceId = await fhirService.createDocumentReference(labOrder, fhirBinaryId, pdfBlobUrl);
             } catch (fhirErr) {
                 logger.error('[FHIR] Failed to create DocumentReference', { error: fhirErr.message });
@@ -425,6 +433,7 @@ class LabController {
                     fhirDocumentReferenceId
                 }
             });
+            console.log('[DEBUG] uploadPdfReport - updatedOrder', updatedOrder);
 
             await auditService.logLabAction(id, 'UPLOAD_PDF', processedBy);
 
@@ -457,23 +466,36 @@ class LabController {
                 for (const t of targets) {
                     let recipientId;
                     if (t === 'doctor') {
-                        recipientId = labOrder.doctorId;
+                        // For doctor, look up the doctor's userId (user table id)
+                        const doctorRecord = await tx.doctor.findUnique({ where: { id: labOrder.doctorId } });
+                        recipientId = doctorRecord?.userId || labOrder.doctorId;
                         labUpdateData.doctorNotifiedAt = new Date();
                     } else if (t === 'patient') {
+                        // Resolve the patient's userId — fallback to Patient table ID if userId is null
+                        // The notification controller queries by both userId AND patientId (JWT claim), so both work
                         const patientRecord = await tx.patient.findUnique({ where: { id: labOrder.patientId } });
-                        recipientId = patientRecord?.userId || labOrder.patientName || labOrder.patientId;
-                        console.log('[DEBUG NOTIFICATION] Patient target:', {
+                        if (!patientRecord) {
+                            console.error('[sendLabReport] Patient record not found for patientId:', labOrder.patientId);
+                            continue; // skip this target
+                        }
+                        // Prefer patientRecord.userId (User table id), fall back to Patient table id
+                        recipientId = patientRecord.userId || patientRecord.id;
+                        console.log('[DEBUG NOTIFICATION] Patient target resolved:', {
                             labOrderPatientId: labOrder.patientId,
-                            labOrderPatientName: labOrder.patientName,
-                            patientRecordFound: !!patientRecord,
-                            patientRecordUserId: patientRecord?.userId,
+                            patientRecordId: patientRecord.id,
+                            patientRecordUserId: patientRecord.userId,
                             resolvedRecipientId: recipientId
                         });
                         labUpdateData.patientNotifiedAt = new Date();
                     }
 
+                    if (!recipientId) {
+                        console.error('[sendLabReport] Could not resolve recipientId for target:', t);
+                        continue;
+                    }
+
                     const title = 'Lab Report Ready';
-                    const message = `The PDF report for ${labOrder.testName} is ready.`;
+                    const message = `The PDF report for ${labOrder.testName} is ready. You can now view and download it from your portal.`;
 
                     const notif = await tx.notification.create({
                         data: {
@@ -485,6 +507,7 @@ class LabController {
                             referenceId: id
                         }
                     });
+                    console.log('[DEBUG] sendLabReport - notification created for recipientId:', recipientId, '| notifId:', notif.id);
                     notifications.push(notif);
                 }
 
@@ -508,16 +531,27 @@ class LabController {
         try {
             const { id } = req.params;
             const labOrder = await prisma.labOrder.findUnique({ where: { id } });
-            if (!labOrder || !labOrder.pdfBlobName) {
-                return res.status(404).json({ success: false, error: 'Report not found' });
+            if (!labOrder) {
+                return res.status(404).json({ success: false, error: 'Lab order not found' });
+            }
+            if (!labOrder.pdfBlobName) {
+                return res.status(404).json({ success: false, error: 'PDF report has not been uploaded for this lab order yet. Please contact your lab technician.' });
             }
 
-            // Verify ownership
+            // Verify ownership: allow if JWT patientId matches OR db record userId matches
             if (req.user.role === 'patient') {
-                // Fetch patient record to compare login userId
-                const patientRecord = await prisma.patient.findUnique({ where: { id: labOrder.patientId } });
-                if (!patientRecord || patientRecord.userId !== req.user.userId) {
-                    return res.status(403).json({ success: false, error: 'Unauthorized access' });
+                const jwtPatientId = req.user.patientId;
+                // Primary check: JWT already has patientId from login
+                if (jwtPatientId && jwtPatientId === labOrder.patientId) {
+                    // Authorized via JWT patientId claim
+                } else {
+                    // Fallback: check DB patient record's userId
+                    const patientRecord = await prisma.patient.findFirst({
+                        where: { userId: req.user.userId }
+                    });
+                    if (!patientRecord || patientRecord.id !== labOrder.patientId) {
+                        return res.status(403).json({ success: false, error: 'Unauthorized access' });
+                    }
                 }
             }
             if (req.user.role === 'doctor' && req.user.doctorId !== labOrder.doctorId) {
@@ -543,10 +577,18 @@ class LabController {
             }
 
             const labOrder = await prisma.labOrder.findUnique({ where: { id: orderId } });
-            if (!labOrder) return res.status(404).json({ success: false, error: 'Lab order not found' });
-            
-            if (labOrder.status !== 'completed') {
-                return res.status(400).json({ success: false, error: 'Lab order is not completed' });
+            if (!labOrder) {
+                return res.status(404).json({ success: false, error: `Lab order not found (id: ${orderId})` });
+            }
+
+            // Allow undo from 'completed' or 'processing' — covers cases where
+            // the UI state and DB state diverge slightly due to async fetchData
+            const undoableStatuses = ['completed', 'processing'];
+            if (!undoableStatuses.includes(labOrder.status)) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Cannot undo: lab order status is '${labOrder.status}'. Only completed or processing orders can be reverted.`
+                });
             }
 
             // Cleanup Azure Blob if exists
@@ -562,6 +604,7 @@ class LabController {
                 where: { id: orderId },
                 data: {
                     status: 'processing',
+                    resultSummary: null,
                     doctorNotifiedAt: null,
                     patientNotifiedAt: null,
                     pdfBlobName: null,
@@ -573,7 +616,7 @@ class LabController {
 
             await auditService.logLabAction(orderId, 'UNDO_COMPLETE', req.user.userId);
 
-            return res.json({ success: true, data: updatedOrder });
+            return res.json({ success: true, data: mapLabOrder(updatedOrder) });
         } catch (err) {
             return res.status(500).json({ success: false, error: err.message });
         }

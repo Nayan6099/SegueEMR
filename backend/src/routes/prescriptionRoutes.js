@@ -16,4 +16,12 @@ router.get('/', requireAuth, requireRole('doctor', 'patient', 'pharmacist', 'nur
 // @desc    Mark a prescription as dispensed (Pharmacist)
 router.put('/:prescriptionId/dispense', requireAuth, requireRole('pharmacist'), prescriptionController.dispensePrescription);
 
+// @route   PUT /api/prescriptions/:prescriptionId/cancel
+// @desc    Cancel a prescription (Pharmacist)
+router.put('/:prescriptionId/cancel', requireAuth, requireRole('pharmacist'), prescriptionController.cancelPrescription);
+
+// @route   PUT /api/prescriptions/:prescriptionId/undo
+// @desc    Undo dispensing or cancelling a prescription (Pharmacist)
+router.put('/:prescriptionId/undo', requireAuth, requireRole('pharmacist'), prescriptionController.undoDispense);
+
 module.exports = router;

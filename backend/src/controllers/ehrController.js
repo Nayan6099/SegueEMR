@@ -6,11 +6,34 @@ const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 
 /**
+ * Derive encryption key based on salt/key format
+ */
+function getDerivedKey(encryptionKeyOrSalt) {
+    if (!process.env.ENCRYPTION_MASTER_KEY) {
+        throw new Error('ENCRYPTION_MASTER_KEY is not set in the environment');
+    }
+    
+    // Legacy format: the stored string is a 64-character hex string (32 bytes)
+    if (encryptionKeyOrSalt.length === 64) {
+        // Fall back to old behavior: derive from the stored plaintext key using hardcoded 'salt'
+        return crypto.scryptSync(encryptionKeyOrSalt, 'salt', 32);
+    } 
+    
+    // New format: the stored string is a 32-character hex string (16 bytes salt)
+    if (encryptionKeyOrSalt.length === 32) {
+        // Derive key from Master Key and the unique salt
+        return crypto.scryptSync(process.env.ENCRYPTION_MASTER_KEY, encryptionKeyOrSalt, 32);
+    }
+
+    throw new Error('Invalid encryption key/salt format');
+}
+
+/**
  * Encrypt file using AES-256-CBC
  */
-function encryptFile(buffer, encryptionKey) {
+function encryptFile(buffer, encryptionKeyOrSalt) {
     const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+    const key = getDerivedKey(encryptionKeyOrSalt);
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(algorithm, key, iv);
     return Buffer.concat([
@@ -23,9 +46,9 @@ function encryptFile(buffer, encryptionKey) {
 /**
  * Decrypt file using AES-256-CBC
  */
-function decryptFile(encryptedBuffer, encryptionKey) {
+function decryptFile(encryptedBuffer, encryptionKeyOrSalt) {
     const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(encryptionKey, 'salt', 32);
+    const key = getDerivedKey(encryptionKeyOrSalt);
     const iv = encryptedBuffer.slice(0, 16);
     const encryptedData = encryptedBuffer.slice(16);
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
@@ -66,8 +89,8 @@ class EHRController {
             const recordId = `EHR_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
             console.log(`Generated Record ID: ${recordId}`);
 
-            // Generate encryption key
-            const encryptionKey = crypto.randomBytes(32).toString('hex');
+            // Generate encryption salt (16 bytes = 32 hex chars) for the new schema
+            const encryptionKey = crypto.randomBytes(16).toString('hex');
 
             // Encrypt file
             console.log('Encrypting file before upload...');

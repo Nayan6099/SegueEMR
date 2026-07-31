@@ -48,6 +48,11 @@ apiClient.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
+
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     return config;
   },
   (error: AxiosError) => Promise.reject(error)
@@ -75,24 +80,25 @@ apiClient.interceptors.response.use(
       return Promise.reject(new Error(HTTP_ERROR_MESSAGES[401]));
     }
 
-    // Use server-provided message if it's safe and non-technical
-    const serverMessage = data?.message;
+    // Use server-provided message if it's safe and non-technical.
+    // Backend uses { success: false, error: "..." } — check both `message` and `error` fields.
+    const rawServerMessage = data?.error || data?.message;
     const isServerMessageSafe =
-      serverMessage &&
-      typeof serverMessage === 'string' &&
-      serverMessage.length < 200 &&
-      !serverMessage.toLowerCase().includes('prisma') &&
-      !serverMessage.toLowerCase().includes('sql') &&
-      !serverMessage.toLowerCase().includes('stack') &&
-      !serverMessage.toLowerCase().includes('at ');
+      rawServerMessage &&
+      typeof rawServerMessage === 'string' &&
+      rawServerMessage.length < 300 &&
+      !rawServerMessage.toLowerCase().includes('prisma') &&
+      !rawServerMessage.toLowerCase().includes('sql') &&
+      !rawServerMessage.toLowerCase().includes('stack') &&
+      !rawServerMessage.toLowerCase().includes('at ');
 
     const userMessage = isServerMessageSafe
-      ? serverMessage
+      ? rawServerMessage
       : (HTTP_ERROR_MESSAGES[status] ?? DEFAULT_ERROR_MESSAGE);
 
     // In development, log full error for debugging
     if (process.env.NODE_ENV === 'development') {
-      console.error('[API Error]', { status, data, url: error.config?.url });
+      console.error('[API Error]', { status, data, url: error.config?.url, userMessage });
     }
 
     return Promise.reject(new Error(userMessage));

@@ -131,6 +131,17 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
+// ─── Static files for local uploads (fallback for Azure) ───────────
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: (res, path, stat) => {
+    if (path.endsWith('.pdf')) {
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', 'inline');
+    }
+  }
+}));
+
 // ─── Request Logging ──────────────────────────────────────────────────────────
 // Dev: colorized short format. Prod: combined (Apache-style) for log aggregators.
 app.use(morgan(isDev ? 'dev' : 'combined', {
@@ -217,7 +228,10 @@ app.use(errorHandler);
 // ─── Start Server ─────────────────────────────────────────────────────────────
 db.query('SELECT NOW()')
   .then(() => logger.info('✓ Connected to PostgreSQL database'))
-  .catch(err => logger.error('✗ Failed to connect to PostgreSQL database', { error: err.message }));
+  .catch(err => {
+    logger.error('CRITICAL: Failed to connect to PostgreSQL database', { error: err.message });
+    process.exit(1);
+  });
 
 app.listen(PORT, () => {
   logger.info(`SegueEMR backend running on port ${PORT}`, {

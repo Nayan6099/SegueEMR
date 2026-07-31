@@ -23,7 +23,7 @@ router.post('/revoke-access', requireAuth, requireRole('patient'), ehrController
 router.get('/history', requireAuth, requireRole('admin_staff', 'admin', 'patient'), ehrController.getAccessHistory);
 router.get('/patient-records', requireAuth, requireRole('patient', 'doctor'), ehrController.listPatientRecords);
 
-router.post('/register-user', async (req, res) => {
+router.post('/register-user', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { userId, name, orgName, role, password, metadata } = req.body;
 
@@ -92,10 +92,11 @@ router.post('/register-user', async (req, res) => {
   }
 });
 
-router.delete('/delete/:recordId', requireAuth, requireRole('doctor', 'patient'), async (req, res) => {
+router.delete('/delete/:recordId', requireAuth, requireRole('doctor', 'patient', 'admin'), async (req, res) => {
   try {
     const { recordId } = req.params;
-    const { userId, orgName } = req.query;
+    const userId = req.user.userId;
+    const role = req.user.role;
 
     const record = await prisma.eHRMetadata.findUnique({
       where: { recordId }
@@ -103,6 +104,20 @@ router.delete('/delete/:recordId', requireAuth, requireRole('doctor', 'patient')
 
     if (!record) {
       return res.status(404).json({ error: 'Record not found' });
+    }
+
+    // Ownership check
+    let isOwner = false;
+    if (role === 'admin') {
+      isOwner = true;
+    } else if (role === 'patient') {
+      isOwner = (record.patientId === userId);
+    } else if (role === 'doctor') {
+      isOwner = (record.doctorId === userId);
+    }
+
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Access Denied: You do not own this record' });
     }
 
     await prisma.eHRMetadata.update({

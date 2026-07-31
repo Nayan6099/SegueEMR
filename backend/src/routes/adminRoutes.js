@@ -4,8 +4,13 @@
 
 const express = require('express');
 const adminController = require('../controllers/adminController');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Apply auth to all admin routes
+router.use(requireAuth);
+router.use(requireRole('admin', 'admin_staff'));
 
 // Dashboard
 router.get('/dashboard/stats', adminController.getDashboardStats);

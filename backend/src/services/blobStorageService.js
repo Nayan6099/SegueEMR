@@ -8,12 +8,18 @@ let containerClient = null;
 
 if (connectionString) {
   try {
-    const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+    const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString, {
+      retryOptions: { maxTries: 1, tryTimeoutInMs: 1000 },
+    });
     containerClient = blobServiceClient.getContainerClient(containerName);
   } catch (error) {
     console.error('Failed to initialize Azure Blob Storage client:', error.message);
   }
 }
+
+const fs = require('fs');
+const path = require('path');
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
 
 /**
  * Uploads a file buffer to Azure Blob Storage
@@ -24,9 +30,14 @@ if (connectionString) {
  * @returns {Promise<string>} - The URL of the uploaded blob
  */
 async function uploadBlob(blobName, buffer, mimeType) {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
   if (!containerClient) {
-    console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock URL.');
-    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}`;
+    console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Saving locally.');
+    fs.writeFileSync(path.join(UPLOADS_DIR, blobName), buffer);
+    return `http://localhost:5000/uploads/${blobName}`;
   }
 
   try {
@@ -43,8 +54,9 @@ async function uploadBlob(blobName, buffer, mimeType) {
 
     return blockBlobClient.url;
   } catch (err) {
-    console.warn(`[DEMO FALLBACK] Blob upload failed (${err.code}). Returning mock URL.`);
-    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}`;
+    console.warn(`[DEMO FALLBACK] Blob upload failed (${err.code}). Saving locally.`);
+    fs.writeFileSync(path.join(UPLOADS_DIR, blobName), buffer);
+    return `http://localhost:5000/uploads/${blobName}`;
   }
 }
 
@@ -55,6 +67,11 @@ async function uploadBlob(blobName, buffer, mimeType) {
  * @returns {Promise<Buffer>} - The downloaded file content
  */
 async function downloadBlob(blobName) {
+  const localPath = path.join(UPLOADS_DIR, blobName);
+  if (fs.existsSync(localPath)) {
+    return fs.readFileSync(localPath);
+  }
+
   if (!containerClient) {
     console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock buffer.');
     return Buffer.from("Demo Fallback: File content could not be retrieved from Azure Blob Storage because the emulator is not running.");
@@ -101,9 +118,14 @@ async function deleteBlob(blobName) {
 }
 
 async function generateSasUrl(blobName, expiresInMinutes = 5) {
+  const localPath = path.join(UPLOADS_DIR, blobName);
+  if (fs.existsSync(localPath)) {
+    return `http://localhost:5000/uploads/${blobName}`;
+  }
+
   if (!containerClient) {
     console.warn('[DEMO FALLBACK] Azure Blob Storage client not initialized. Returning mock SAS URL.');
-    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}?sas=demo-token`;
+    return `http://localhost:5000/uploads/${blobName}`;
   }
 
   try {
@@ -119,7 +141,7 @@ async function generateSasUrl(blobName, expiresInMinutes = 5) {
     return sasUrl;
   } catch (err) {
     console.warn(`[DEMO FALLBACK] SAS URL generation failed (${err.code}). Returning mock URL.`);
-    return `http://127.0.0.1:10000/devstoreaccount1/medical-records/${blobName}?sas=demo-token`;
+    return `http://localhost:5000/uploads/${blobName}`;
   }
 }
 

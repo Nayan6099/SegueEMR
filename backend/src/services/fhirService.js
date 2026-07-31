@@ -236,11 +236,11 @@ async function syncLabOrder(labOrder) {
   }
 }
 
-async function createBinary(blobUrl, mimeType) {
+async function createBinary(fileBuffer, mimeType) {
   const resourceData = {
     resourceType: 'Binary',
     contentType: mimeType,
-    data: Buffer.from(blobUrl).toString('base64')
+    data: fileBuffer.toString('base64')
   };
   const res = await syncResource('Binary', resourceData);
   return res ? res.id : null;

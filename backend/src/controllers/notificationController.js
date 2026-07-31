@@ -4,9 +4,15 @@ class NotificationController {
   async listNotifications(req, res) {
     try {
       const userId = req.user.userId;
+      const patientId = req.user.patientId; // from JWT claim (Patient table ID)
+
+      // For patients, match by userId OR patientId (handles patient records without linked userId)
+      const where = patientId && patientId !== userId
+        ? { OR: [{ userId }, { userId: patientId }] }
+        : { userId };
       
       const notifications = await prisma.notification.findMany({
-        where: { userId },
+        where,
         orderBy: { createdAt: 'desc' }
       });
 
@@ -23,8 +29,12 @@ class NotificationController {
   async getUnreadCount(req, res) {
     try {
       const userId = req.user.userId;
+      const patientId = req.user.patientId;
+      const userIdFilter = patientId && patientId !== userId
+        ? { OR: [{ userId }, { userId: patientId }] }
+        : { userId };
       const count = await prisma.notification.count({
-        where: { userId, isRead: false }
+        where: { ...userIdFilter, isRead: false }
       });
       return res.json({ success: true, count });
     } catch (err) {
@@ -37,9 +47,13 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = req.user.userId;
+      const patientId = req.user.patientId;
+      const userIdFilter = patientId && patientId !== userId
+        ? { OR: [{ userId }, { userId: patientId }] }
+        : { userId };
 
       const notification = await prisma.notification.findFirst({
-        where: { id, userId }
+        where: { id, ...userIdFilter }
       });
 
       if (!notification) {
@@ -65,11 +79,21 @@ class NotificationController {
   async markAllRead(req, res) {
     try {
       const userId = req.user.userId;
+      const patientId = req.user.patientId;
 
+      // Update for userId
       await prisma.notification.updateMany({
         where: { userId, isRead: false },
         data: { isRead: true }
       });
+
+      // Also update for patientId if different
+      if (patientId && patientId !== userId) {
+        await prisma.notification.updateMany({
+          where: { userId: patientId, isRead: false },
+          data: { isRead: true }
+        });
+      }
 
       return res.json({
         success: true,

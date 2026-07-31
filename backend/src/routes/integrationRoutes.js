@@ -3,7 +3,13 @@ const prisma = require('../config/prisma');
 const { logActivity } = require('../services/activityLogger');
 
 const router = express.Router();
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'super_secret_webhook_key_123';
+const crypto = require('crypto');
+
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+if (!WEBHOOK_SECRET) {
+  console.error('CRITICAL: WEBHOOK_SECRET is missing. Webhooks will not function securely.');
+  process.exit(1);
+}
 
 /**
  * Middleware to authenticate webhook callers using a shared secret header.
@@ -12,12 +18,25 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'super_secret_webhook_key_1
  */
 function authenticateWebhook(req, res, next) {
   const callerSecret = req.headers['x-webhook-secret'];
-  if (!callerSecret || callerSecret !== WEBHOOK_SECRET) {
+  
+  if (!callerSecret) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized webhook call: Missing secret.'
+    });
+  }
+
+  // Use timing-safe equality on SHA-256 hashes of both strings to avoid length mismatch issues
+  const expectedHash = crypto.createHash('sha256').update(WEBHOOK_SECRET).digest();
+  const callerHash = crypto.createHash('sha256').update(callerSecret).digest();
+
+  if (!crypto.timingSafeEqual(expectedHash, callerHash)) {
     return res.status(401).json({
       success: false,
       error: 'Unauthorized webhook call: Invalid secret.'
     });
   }
+  
   next();
 }
 

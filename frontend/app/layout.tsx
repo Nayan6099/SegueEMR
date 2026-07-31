@@ -20,7 +20,11 @@ export const metadata: Metadata = {
   keywords: ['EMR', 'EHR', 'Electronic Medical Records', 'Healthcare', 'Patient Management'],
   authors: [{ name: 'SegueEMR Team' }],
   robots: { index: false, follow: false }, // Private healthcare app — don't index
-  viewport: 'width=device-width, initial-scale=1',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
   themeColor: '#4f46e5',
 };
 

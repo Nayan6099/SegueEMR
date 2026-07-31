@@ -46,12 +46,27 @@ router.post('/login', async (req, res, next) => {
       let demoDoctorId  = null;
 
       if (bypassRole === 'patient') {
-        const pat = await prisma.patient.findUnique({ where: { id: loginIdentifier } })
-          || await prisma.patient.findFirst({ where: { userId: loginIdentifier } });
+        let pat = await prisma.patient.findUnique({ where: { id: loginIdentifier } })
+          || await prisma.patient.findFirst({ where: { userId: loginIdentifier } })
+          || await prisma.patient.findFirst({ where: { name: { equals: loginIdentifier, mode: 'insensitive' } } });
+        
+        // If patient record found but userId not linked, link it now if the user exists
+        if (pat && !pat.userId) {
+          try {
+            const userExists = await prisma.user.findUnique({ where: { id: loginIdentifier } });
+            if (userExists) {
+              await prisma.patient.update({ where: { id: pat.id }, data: { userId: loginIdentifier } });
+              logger.info('[AUTH] Linked patient record to userId', { patientId: pat.id, userId: loginIdentifier });
+            }
+          } catch (e) {
+            logger.warn('[AUTH] Could not link patient userId', { error: e.message });
+          }
+        }
         demoPatientId = pat?.id || loginIdentifier;
       } else if (bypassRole === 'doctor') {
         const doc = await prisma.doctor.findUnique({ where: { id: loginIdentifier } })
-          || await prisma.doctor.findUnique({ where: { userId: loginIdentifier } });
+          || await prisma.doctor.findUnique({ where: { userId: loginIdentifier } })
+          || await prisma.doctor.findFirst({ where: { name: { equals: loginIdentifier, mode: 'insensitive' } } });
         demoDoctorId = doc?.id || null;
       }
 
@@ -86,6 +101,7 @@ router.post('/login', async (req, res, next) => {
           { id:       loginIdentifier },
           { username: loginIdentifier },
           { email:    loginIdentifier },
+          { fullName: { equals: loginIdentifier, mode: 'insensitive' } },
         ],
       },
     });
@@ -105,7 +121,17 @@ router.post('/login', async (req, res, next) => {
     let doctorId  = null;
 
     if (user.role === 'patient') {
-      const patient = await prisma.patient.findFirst({ where: { userId: user.id } });
+      let patient = await prisma.patient.findFirst({ where: { userId: user.id } })
+        || await prisma.patient.findUnique({ where: { id: user.id } });
+      // If patient found but userId not linked, link it now
+      if (patient && !patient.userId) {
+        try {
+          await prisma.patient.update({ where: { id: patient.id }, data: { userId: user.id } });
+          logger.info('[AUTH] Linked patient record to userId on login', { patientId: patient.id, userId: user.id });
+        } catch (e) {
+          logger.warn('[AUTH] Could not link patient userId on login', { error: e.message });
+        }
+      }
       patientId = patient?.id || null;
     } else if (user.role === 'doctor') {
       const doctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
