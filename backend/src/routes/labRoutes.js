@@ -31,7 +31,11 @@ router.put('/orders/:labOrderId/status', requireAuth, requireRole('lab_technicia
 
 // @route   PUT /api/lab/orders/:labOrderId/result
 // @desc    Upload result and mark completed (Lab Technician)
-router.put('/orders/:labOrderId/result', requireAuth, requireRole('lab_technician'), labController.uploadResult);
+router.put('/orders/:labOrderId/result', requireAuth, requireRole('lab_technician', 'doctor'), labController.uploadResult);
+
+// @route   POST /api/lab/orders/batch-result
+// @desc    Batch upload structured results (Lab Technician/Doctor)
+router.post('/orders/batch-result', requireAuth, requireRole('lab_technician', 'doctor'), labController.batchUploadResults);
 
 // @route   POST /api/lab/orders/:orderId/notify
 // @desc    Notify doctor or patient about a completed lab order

@@ -22,6 +22,7 @@ router.post('/grant-access', requireAuth, requireRole('patient'), ehrController.
 router.post('/revoke-access', requireAuth, requireRole('patient'), ehrController.revokeAccess);
 router.get('/history', requireAuth, requireRole('admin_staff', 'admin', 'patient'), ehrController.getAccessHistory);
 router.get('/patient-records', requireAuth, requireRole('patient', 'doctor'), ehrController.listPatientRecords);
+router.get('/export-zip', requireAuth, requireRole('patient'), ehrController.bulkExportEHR);
 
 router.post('/register-user', requireAuth, requireRole('admin'), async (req, res) => {
   try {

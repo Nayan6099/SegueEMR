@@ -1,5 +1,6 @@
 const { BlobServiceClient, BlobSASPermissions } = require('@azure/storage-blob');
 require('dotenv').config();
+const logger = require('../utils/logger');
 
 const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
 const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'medical-records';
@@ -13,7 +14,7 @@ if (connectionString) {
     });
     containerClient = blobServiceClient.getContainerClient(containerName);
   } catch (error) {
-    console.error('Failed to initialize Azure Blob Storage client:', error.message);
+    logger.error('[blobStorage:init]', { error: error.message });
   }
 }
 
@@ -54,7 +55,8 @@ async function uploadBlob(blobName, buffer, mimeType) {
 
     return blockBlobClient.url;
   } catch (err) {
-    console.warn(`[DEMO FALLBACK] Blob upload failed (${err.code}). Saving locally.`);
+    logger.error('[blobStorage:uploadBlob]', { error: err.message, blobName });
+    logger.warn(`[DEMO FALLBACK] Blob upload failed (${err.code}). Saving locally.`);
     fs.writeFileSync(path.join(UPLOADS_DIR, blobName), buffer);
     return `http://localhost:5000/uploads/${blobName}`;
   }
@@ -96,7 +98,8 @@ async function downloadBlob(blobName) {
       readableStream.on('error', reject);
     });
   } catch (err) {
-    console.warn(`[DEMO FALLBACK] Blob download failed (${err.code}). Returning mock buffer.`);
+    logger.error('[blobStorage:downloadBlob]', { error: err.message, blobName });
+    logger.warn(`[DEMO FALLBACK] Blob download failed (${err.code}). Returning mock buffer.`);
     return Buffer.from("Demo Fallback: File content could not be retrieved from Azure Blob Storage because the emulator is not running.");
   }
 }
@@ -112,9 +115,14 @@ async function deleteBlob(blobName) {
     throw new Error('Azure Blob Storage client is not initialized');
   }
 
-  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-  const response = await blockBlobClient.deleteIfExists();
-  return response.succeeded;
+  try {
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    const response = await blockBlobClient.deleteIfExists();
+    return response.succeeded;
+  } catch (err) {
+    logger.error('[blobStorage:deleteBlob]', { error: err.message, blobName });
+    throw err;
+  }
 }
 
 async function generateSasUrl(blobName, expiresInMinutes = 5) {
@@ -140,7 +148,8 @@ async function generateSasUrl(blobName, expiresInMinutes = 5) {
     
     return sasUrl;
   } catch (err) {
-    console.warn(`[DEMO FALLBACK] SAS URL generation failed (${err.code}). Returning mock URL.`);
+    logger.error('[blobStorage:generateSasUrl]', { error: err.message, blobName });
+    logger.warn(`[DEMO FALLBACK] SAS URL generation failed (${err.code}). Returning mock URL.`);
     return `http://localhost:5000/uploads/${blobName}`;
   }
 }

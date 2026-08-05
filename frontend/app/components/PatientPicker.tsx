@@ -138,7 +138,9 @@ export function PatientPicker({ value, onChange, showDetailsFields = false, exis
                       onClick={() => handleSelectExisting(p)}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 border-b border-slate-100 last:border-0 block"
                     >
-                      <span className="font-semibold block text-slate-800">{p.name}</span>
+                      <span className="font-semibold block text-slate-800">
+                        {p.name} {p.userId && <span className="text-indigo-600 font-normal">({p.userId})</span>}
+                      </span>
                       <span className="text-[10px] block text-slate-500 font-mono">{p.id}</span>
                     </button>
                   ))}

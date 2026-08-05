@@ -12,6 +12,14 @@ import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'ax
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
+const isStaffRoute = () => {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname;
+  if (path.startsWith('/staff')) return true;
+  if (path.startsWith('/dashboard') && !path.startsWith('/dashboard/patient')) return true;
+  return false;
+};
+
 // ─── User-friendly error messages ─────────────────────────────────────────────
 const HTTP_ERROR_MESSAGES: Record<number, string> = {
   400: 'The request was invalid. Please check your input.',
@@ -42,7 +50,8 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('segue_token');
+      const tokenKey = isStaffRoute() ? 'segue_token_staff' : 'segue_token_patient';
+      const token = localStorage.getItem(tokenKey);
       if (token) {
         config.headers = config.headers ?? {};
         config.headers.Authorization = `Bearer ${token}`;
@@ -72,10 +81,12 @@ apiClient.interceptors.response.use(
     // Session expired — clear storage and redirect to login
     if (status === 401) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('segue_token');
-        localStorage.removeItem('segue_user');
+        const tokenKey = isStaffRoute() ? 'segue_token_staff' : 'segue_token_patient';
+        const userKey = isStaffRoute() ? 'segue_user_staff' : 'segue_user_patient';
+        localStorage.removeItem(tokenKey);
+        localStorage.removeItem(userKey);
         // Soft redirect — Next.js router will handle it on next render cycle
-        window.location.href = '/';
+        window.location.href = isStaffRoute() ? '/staff/login' : '/';
       }
       return Promise.reject(new Error(HTTP_ERROR_MESSAGES[401]));
     }

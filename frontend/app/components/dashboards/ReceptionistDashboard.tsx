@@ -181,7 +181,7 @@ export function ReceptionistDashboard(props: any) {
               <p className="text-sm text-slate-500 mt-1">Schedule new consultations, manage appointments, and issue billing invoices.</p>
             </div>
 
-            <div className="flex gap-2 border-b border-slate-200 pb-2">
+            <div className="flex gap-2 border-b border-slate-200 pb-2 flex-wrap">
               <button
                 onClick={() => setActiveTab('overview')}
                 className={`px-4 py-2 text-sm font-semibold rounded ${activeTab === 'overview' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}

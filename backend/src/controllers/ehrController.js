@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+// archiver is imported dynamically where needed
 const blobStorageService = require('../services/blobStorageService');
 const dbService = require('../services/dbService');
 const fhirService = require('../services/fhirService');
@@ -425,6 +426,76 @@ class EHRController {
                 error: 'Failed to list records',
                 details: error.message
             });
+        }
+    }
+
+    /**
+     * BULK EXPORT PATIENT RECORDS (ZIP)
+     */
+    async bulkExportEHR(req, res) {
+        try {
+            console.log('\n=== BULK EXPORT EHR REQUEST ===');
+
+            // 1. Authenticate & fetch metadata using the same secure logic as listPatientRecords
+            const role = req.user.role;
+            if (role !== 'patient') {
+                return res.status(403).json({ error: 'Only patients can bulk-export their own records.' });
+            }
+            const finalPatientId = req.user.patientId;
+            const metadataList = await dbService.getRecordsByPatient(finalPatientId);
+
+            if (!metadataList || metadataList.length === 0) {
+                return res.status(404).json({ error: 'No records found for bulk export.' });
+            }
+
+            // 2. Set headers for ZIP response
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="Medical_Records_${finalPatientId}.zip"`);
+
+            // 3. Initialize archiver (dynamically imported because it is an ES module)
+            const { default: archiver } = await import('archiver');
+            const archive = archiver('zip', { zlib: { level: 9 } });
+
+            archive.on('error', (err) => {
+                console.error('Archiver error:', err);
+                if (!res.headersSent) {
+                    res.status(500).send({ error: 'Failed to create ZIP archive.' });
+                }
+            });
+
+            // Pipe archive data to the response
+            archive.pipe(res);
+
+            // 4. Stream and decrypt each record into the archive
+            for (const metadata of metadataList) {
+                try {
+                    console.log(`Zipping ${metadata.recordId}...`);
+                    const encryptedBuffer = await blobStorageService.downloadBlob(metadata.blobReference);
+                    const fileBuffer = decryptFile(encryptedBuffer, metadata.encryptionKey);
+                    
+                    // Create a safe filename (e.g., ClinicalNote_abc123.pdf or just ClinicalNote_abc123)
+                    const filename = `${metadata.recordType}_${metadata.recordId}`;
+                    archive.append(fileBuffer, { name: filename });
+                } catch (err) {
+                    console.error(`Failed to zip record ${metadata.recordId}:`, err);
+                    // Add an error log inside the zip instead of failing the whole zip
+                    archive.append(`Failed to download or decrypt record: ${metadata.recordId}\nError: ${err.message}`, { name: `ERROR_${metadata.recordId}.txt` });
+                }
+            }
+
+            // 5. Finalize the archive (this will finish the response stream)
+            await archive.finalize();
+            console.log('=== BULK EXPORT EHR COMPLETE ===\n');
+
+        } catch (error) {
+            console.error('Error in bulkExportEHR:', error);
+            if (!res.headersSent) {
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to bulk export records',
+                    details: error.message
+                });
+            }
         }
     }
 }

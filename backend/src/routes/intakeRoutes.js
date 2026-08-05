@@ -11,6 +11,9 @@ router.use(requireAuth);
 router.post('/patients/register', requireRole('receptionist', 'nurse', 'doctor'), intakeController.registerPatient);
 router.get('/patients/search', requireRole('receptionist', 'nurse', 'doctor'), intakeController.searchPatients);
 
+router.post('/eligibility', requireRole('receptionist', 'nurse', 'doctor'), intakeController.addEligibilityCheck);
+router.get('/eligibility', requireRole('receptionist', 'nurse', 'doctor'), intakeController.getEligibilityChecks);
+
 router.post('/', requireRole('receptionist', 'nurse', 'doctor', 'patient'), intakeController.createIntake);
 router.get('/', requireRole('receptionist', 'nurse', 'doctor'), intakeController.getIntakes);
 router.put('/:id', requireRole('receptionist', 'nurse', 'doctor'), intakeController.updateIntake);

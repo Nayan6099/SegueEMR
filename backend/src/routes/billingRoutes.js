@@ -5,12 +5,20 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // @route   POST /api/billing/invoices
-// @desc    Create a new invoice (Receptionist / Admin Staff)
-router.post('/invoices', requireAuth, requireRole('receptionist', 'admin_staff', 'admin'), billingController.createInvoice);
+// @desc    Create a new invoice (Receptionist / Admin Staff / Doctor)
+router.post('/invoices', requireAuth, requireRole('doctor', 'receptionist', 'admin_staff', 'admin'), billingController.createInvoice);
 
 // @route   GET /api/billing/invoices
 // @desc    List invoices, filter by patientId/status
-router.get('/invoices', requireAuth, requireRole('receptionist', 'admin_staff', 'admin', 'patient'), billingController.listInvoices);
+router.get('/invoices', requireAuth, requireRole('doctor', 'receptionist', 'admin_staff', 'admin', 'patient'), billingController.listInvoices);
+
+// @route   GET /api/billing/invoices/appointment/:appointmentId
+// @desc    Get invoice by appointment ID
+router.get('/invoices/appointment/:appointmentId', requireAuth, requireRole('doctor', 'receptionist', 'admin_staff', 'admin', 'patient'), billingController.getInvoiceByAppointment);
+
+// @route   PUT /api/billing/invoices/:invoiceId
+// @desc    Update invoice (draft fee sheet)
+router.put('/invoices/:invoiceId', requireAuth, requireRole('doctor', 'receptionist', 'admin_staff', 'admin'), billingController.updateInvoice);
 
 // @route   PUT /api/billing/invoices/:invoiceId/pay
 // @desc    Mark an invoice as paid

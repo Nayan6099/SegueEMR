@@ -1,0 +1,4 @@
+# Ignore screenshots and generated test outputs
+*.webp
+*.png
+*.log

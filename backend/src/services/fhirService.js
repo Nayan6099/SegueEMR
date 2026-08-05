@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const logger = require('../utils/logger');
 
 const {
   FHIR_BASE_URL,
@@ -44,7 +45,7 @@ async function getAccessToken() {
     tokenExpiresAt = Date.now() + (response.data.expires_in || 3600) * 1000;
     return accessToken;
   } catch (error) {
-    console.error('[FHIR] Error fetching token:', error.response?.data || error.message);
+    logger.error('[fhir:getAccessToken]', { error: error.response?.data || error.message });
     return null;
   }
 }
@@ -54,7 +55,7 @@ async function getAccessToken() {
  */
 async function syncResource(resourceType, resourceData, fhirResourceId = null) {
   if (!FHIR_BASE_URL) {
-    console.warn(`[FHIR] Sync skipped: FHIR_BASE_URL is not set.`);
+    logger.warn('[fhir:syncResource]', { msg: `Sync skipped: FHIR_BASE_URL is not set.` });
     return null;
   }
 
@@ -87,10 +88,10 @@ async function syncResource(resourceType, resourceData, fhirResourceId = null) {
       timeout: 5000
     });
 
-    console.log(`[FHIR] Successfully synced ${resourceType} (${method})`);
+    logger.info('[fhir:syncResource]', { msg: `Successfully synced ${resourceType} (${method})` });
     return response.data;
   } catch (error) {
-    console.error(`[FHIR] Error syncing ${resourceType} to FHIR:`, error.response?.data || error.message);
+    logger.error('[fhir:syncResource]', { resourceType, error: error.response?.data || error.message });
     return null;
   }
 }

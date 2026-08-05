@@ -1,0 +1,5 @@
+# Ignore token dumps and generated test outputs
+tokens.json
+*.log
+*.webp
+*.png

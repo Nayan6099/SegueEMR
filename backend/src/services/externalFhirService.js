@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const logger = require('../utils/logger');
 
 const {
   EXTERNAL_LAB_FHIR_URL,
@@ -51,7 +52,7 @@ async function getPartnerToken(type) {
       labTokenExpiresAt = Date.now() + (response.data.expires_in || 3600) * 1000;
       return labAccessToken;
     } catch (error) {
-      console.error('[External Lab FHIR] Token fetch failed:', error.response?.data || error.message);
+      logger.error('[externalFhir:getPartnerToken]', { type: 'lab', error: error.response?.data || error.message });
       return null;
     }
   } else if (type === 'pharmacy') {
@@ -77,7 +78,7 @@ async function getPartnerToken(type) {
       pharmacyTokenExpiresAt = Date.now() + (response.data.expires_in || 3600) * 1000;
       return pharmacyAccessToken;
     } catch (error) {
-      console.error('[External Pharmacy FHIR] Token fetch failed:', error.response?.data || error.message);
+      logger.error('[externalFhir:getPartnerToken]', { type: 'pharmacy', error: error.response?.data || error.message });
       return null;
     }
   }
@@ -89,11 +90,11 @@ async function getPartnerToken(type) {
  */
 async function submitToPartner(type, resourceType, resourceData) {
   // Log the complete outbound JSON payload for verification
-  console.log(`[OUTBOUND FHIR PAYLOAD] Payload for external ${type} (${resourceType}):`, JSON.stringify(resourceData, null, 2));
+  logger.info('[externalFhir:submitToPartner]', { msg: `Payload for external ${type} (${resourceType})`, data: resourceData });
 
   const baseUrl = type === 'lab' ? EXTERNAL_LAB_FHIR_URL : EXTERNAL_PHARMACY_FHIR_URL;
   if (!baseUrl) {
-    console.warn(`[External FHIR] Submit skipped: External ${type} FHIR URL is not configured.`);
+    logger.warn('[externalFhir:submitToPartner]', { msg: `Submit skipped: External ${type} FHIR URL is not configured.` });
     return null;
   }
 
@@ -111,10 +112,10 @@ async function submitToPartner(type, resourceType, resourceData) {
 
   try {
     const response = await axios.post(url, resourceData, { headers, timeout: 5000 });
-    console.log(`[External FHIR] Successfully submitted ${resourceType} to external ${type}`);
+    logger.info('[externalFhir:submitToPartner]', { msg: `Successfully submitted ${resourceType} to external ${type}` });
     return response.data;
   } catch (error) {
-    console.error(`[External FHIR] Error submitting ${resourceType} to external ${type}:`, error.response?.data || error.message);
+    logger.error('[externalFhir:submitToPartner]', { type, resourceType, error: error.response?.data || error.message });
     return null;
   }
 }

@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { DashboardProvider } from '../context/DashboardContext';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -37,9 +38,11 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} h-full`}>
       <body className="min-h-full flex flex-col antialiased bg-slate-50 text-slate-900">
         <ErrorBoundary>
-          <ToastProvider>
-            {children}
-          </ToastProvider>
+          <DashboardProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
+          </DashboardProvider>
         </ErrorBoundary>
       </body>
     </html>

@@ -29,6 +29,7 @@ export interface User {
 
 export interface PatientRecord {
   id: string;
+  userId?: string;
   name: string;
   existing?: boolean;
 }
@@ -119,6 +120,14 @@ export interface Invoice {
   generatedBy?: string;
   paidAt?: string;
   createdAt: string;
+  items?: {
+    cptCode?: string;
+    icd10Code?: string;
+    modifiers?: string;
+    description: string;
+    quantity?: number;
+    amount: number;
+  }[];
 }
 
 export interface Allergy {
@@ -240,7 +249,36 @@ export interface ClinicalNote {
   soapAssessment?: string;
   soapPlan?: string;
   recordedBy: string;
-  createdAt?: string;
+}
+
+export interface OfficeNote {
+  id: string;
+  patientId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface PatientEducation {
+  id: string;
+  patientId: string;
+  authorId: string;
+  authorName: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface Authorization {
+  id: string;
+  patientId: string;
+  authorId: string;
+  authorName: string;
+  requestedItem: string;
+  payer: string;
+  status: 'pending' | 'approved' | 'denied';
+  createdAt: string;
 }
 
 export interface Medicine {
@@ -314,6 +352,13 @@ const api = {
   viewEHR: async (recordId: string, userId: string, orgName: string): Promise<Blob> => {
     const { data } = await apiClient.get('/ehr/view', {
       params: { recordId, userId, orgName },
+      responseType: 'blob',
+    });
+    return data;
+  },
+
+  bulkExportEHR: async (): Promise<Blob> => {
+    const { data } = await apiClient.get('/ehr/export-zip', {
       responseType: 'blob',
     });
     return data;
@@ -453,6 +498,11 @@ const api = {
     return data;
   },
 
+  batchUploadLabResults: async (results: { labOrderId: string, resultSummary?: string, resultFields?: Record<string, string> }[]): Promise<ApiResponse<LabOrder[]>> => {
+    const { data } = await apiClient.post(`/lab/orders/batch-result`, { results });
+    return data;
+  },
+
   notifyLabOrder: async (orderId: string, target: 'doctor' | 'patient' | 'both'): Promise<ApiResponse<unknown>> => {
     const { data } = await apiClient.post(`/lab/orders/${orderId}/notify`, { target });
     return data;
@@ -507,6 +557,18 @@ const api = {
 
   createInvoice: async (payload: Partial<Invoice>): Promise<ApiResponse<Invoice>> => {
     const { data } = await apiClient.post('/billing/invoices', payload);
+    if (data?.success && data.data) data.data = normalizeInvoice(data.data);
+    return data;
+  },
+
+  updateInvoice: async (invoiceId: string, payload: Partial<Invoice>): Promise<ApiResponse<Invoice>> => {
+    const { data } = await apiClient.put(`/billing/invoices/${invoiceId}`, payload);
+    if (data?.success && data.data) data.data = normalizeInvoice(data.data);
+    return data;
+  },
+
+  getInvoiceByAppointment: async (appointmentId: string): Promise<ApiResponse<Invoice>> => {
+    const { data } = await apiClient.get(`/billing/invoices/appointment/${appointmentId}`);
     if (data?.success && data.data) data.data = normalizeInvoice(data.data);
     return data;
   },
@@ -570,8 +632,12 @@ const api = {
   },
 
   sendMessage: async (payload: { senderId: string; receiverId: string; content: string }): Promise<ApiResponse<unknown>> => {
-    const { data } = await apiClient.post('/patient/messages', payload);
-    return data;
+    const res = await apiClient.post('/patient/messages', payload);
+    return res.data;
+  },
+  readMessages: async (otherId: string): Promise<ApiResponse<unknown>> => {
+    const res = await apiClient.post('/patient/messages/read', { otherId });
+    return res.data;
   },
 
   getApiKeys: async (patientId: string): Promise<ApiResponse<PatientApiKey[]>> => {
@@ -676,6 +742,17 @@ const api = {
     document.body.removeChild(a);
   },
 
+  // ── Reports ───────────────────────────────────────────────────────────────
+  getPatientReport: async (params?: any): Promise<ApiResponse<any[]>> => {
+    const { data } = await apiClient.get('/reports/patients', { params });
+    return data;
+  },
+
+  getClinicalSummaryReport: async (params?: any): Promise<ApiResponse<any>> => {
+    const { data } = await apiClient.get('/reports/clinical-summary', { params });
+    return data;
+  },
+
   // ── Organization ──────────────────────────────────────────────────────────
   getOrganizationDetails: async (orgName: string): Promise<ApiResponse<{ org: Organization; staff: User[] }>> => {
     const { data } = await apiClient.get('/organization', { params: { orgName } });
@@ -709,14 +786,25 @@ const api = {
     return data;
   },
 
+  getEligibilityChecks: async (params?: any): Promise<ApiResponse<any[]>> => {
+    const { data } = await apiClient.get('/intake/eligibility', { params });
+    return data;
+  },
+
+  addEligibilityCheck: async (payload: { patientId: string; patientName: string; payer: string; status?: string }): Promise<ApiResponse<any>> => {
+    const { data } = await apiClient.post('/intake/eligibility', payload);
+    return data;
+  },
+
   // ── Auth ──────────────────────────────────────────────────────────────────
-  login: async (
-    userId: string,
-    orgName: string,
-    role: string,
-    password?: string
-  ): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
-    const { data } = await apiClient.post('/auth/login', { userId, orgName, role, password });
+  login: async (payload: {
+    userId?: string;
+    email?: string;
+    orgName?: string;
+    role?: string;
+    password?: string;
+  }): Promise<ApiResponse<{ token: string; user: User & { patientId?: string; doctorId?: string } }>> => {
+    const { data } = await apiClient.post('/auth/login', payload);
     return data;
   },
 
@@ -744,6 +832,59 @@ const api = {
   // ── Directory / Providers ─────────────────────────────────────────────────
   getProviders: async (role?: string): Promise<ApiResponse<unknown[]>> => {
     const { data } = await apiClient.get('/directory/providers', { params: role ? { role } : {} });
+    return data;
+  },
+
+  // ── Recalls ───────────────────────────────────────────────────────────────
+  createRecall: async (payload: { patientId: string; patientName: string; reason: string; dueDate: string; notes?: string }): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.post('/recalls', payload);
+    return data;
+  },
+
+  listRecalls: async (params: Record<string, string> = {}): Promise<ApiResponse<unknown[]>> => {
+    const { data } = await apiClient.get('/recalls', { params });
+    return data;
+  },
+
+  updateRecallStatus: async (recallId: string, status: string, notes?: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.put(`/recalls/${recallId}/status`, { status, notes });
+    return data;
+  },
+
+  // ── Form status (record requests) ────────────────────────────────────────
+  updateFormStatus: async (formId: string, status: string): Promise<ApiResponse<unknown>> => {
+    const { data } = await apiClient.patch(`/patient/forms/${formId}/status`, { status });
+    return data;
+  },
+
+  // ── Chart Additions (Office Notes, Education, Authorizations) ─────────────
+  getOfficeNotes: async (patientId: string): Promise<ApiResponse<OfficeNote[]>> => {
+    const { data } = await apiClient.get(`/chart/office-notes/${patientId}`);
+    return data;
+  },
+
+  addOfficeNote: async (patientId: string, payload: { authorId: string; authorName: string; content: string }): Promise<ApiResponse<OfficeNote>> => {
+    const { data } = await apiClient.post(`/chart/office-notes/${patientId}`, payload);
+    return data;
+  },
+
+  getPatientEducation: async (patientId: string): Promise<ApiResponse<PatientEducation[]>> => {
+    const { data } = await apiClient.get(`/chart/education/${patientId}`);
+    return data;
+  },
+
+  addPatientEducation: async (patientId: string, payload: { authorId: string; authorName: string; title: string; content: string }): Promise<ApiResponse<PatientEducation>> => {
+    const { data } = await apiClient.post(`/chart/education/${patientId}`, payload);
+    return data;
+  },
+
+  getAuthorizations: async (patientId: string): Promise<ApiResponse<Authorization[]>> => {
+    const { data } = await apiClient.get(`/chart/authorizations/${patientId}`);
+    return data;
+  },
+
+  addAuthorization: async (patientId: string, payload: { authorId: string; authorName: string; requestedItem: string; payer: string; status: string }): Promise<ApiResponse<Authorization>> => {
+    const { data } = await apiClient.post(`/chart/authorizations/${patientId}`, payload);
     return data;
   },
 };

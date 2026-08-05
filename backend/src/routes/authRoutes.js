@@ -39,7 +39,26 @@ router.post('/login', async (req, res, next) => {
     // ── DEMO BYPASS ─────────────────────────────────────────────────────────
     // Only active when DEMO_MODE=true is set AND we are NOT in production.
     if (DEMO_MODE && password === 'demo') {
-      const bypassRole = role || 'receptionist';
+      let bypassRole = role;
+      
+      // Attempt to look up real role if user exists
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: loginIdentifier },
+            { username: loginIdentifier },
+            { email: loginIdentifier },
+            { fullName: { equals: loginIdentifier, mode: 'insensitive' } },
+          ],
+        },
+      });
+
+      if (existingUser) {
+        bypassRole = existingUser.role;
+      } else if (!bypassRole) {
+        // Fallback guess based on identifier
+        bypassRole = loginIdentifier.toLowerCase().includes('patient') ? 'patient' : 'receptionist';
+      }
 
       // Resolve against real DB records when possible for FK safety
       let demoPatientId = null;
@@ -70,15 +89,28 @@ router.post('/login', async (req, res, next) => {
         demoDoctorId = doc?.id || null;
       }
 
+      // For patient demo logins, include allowSelfEntry flag from DB
+      let demoAllowSelfEntry = false;
+      if (bypassRole === 'patient' && demoPatientId) {
+        try {
+          const patRec = await prisma.patient.findUnique({
+            where: { id: demoPatientId },
+            select: { allowSelfEntry: true },
+          });
+          demoAllowSelfEntry = patRec?.allowSelfEntry ?? false;
+        } catch (_) { /* non-fatal */ }
+      }
+
       const demoUser = {
-        userId:    loginIdentifier || 'demo_user',
-        username:  loginIdentifier || 'demo_user',
-        email:     `${loginIdentifier || 'demo'}@segueemr.local`,
-        role:      bypassRole,
-        fullName:  `Demo ${bypassRole.charAt(0).toUpperCase() + bypassRole.slice(1)}`,
-        patientId: demoPatientId,
-        doctorId:  demoDoctorId,
-        orgName:   bypassRole === 'patient' ? 'patient' : 'hospital',
+        userId:         loginIdentifier || 'demo_user',
+        username:       loginIdentifier || 'demo_user',
+        email:          `${loginIdentifier || 'demo'}@segueemr.local`,
+        role:           bypassRole,
+        fullName:       `Demo ${bypassRole.charAt(0).toUpperCase() + bypassRole.slice(1)}`,
+        patientId:      demoPatientId,
+        doctorId:       demoDoctorId,
+        orgName:        bypassRole === 'patient' ? 'patient' : 'hospital',
+        allowSelfEntry: demoAllowSelfEntry,
       };
 
       logger.info('[AUTH] Demo login', { userId: demoUser.userId, role: demoUser.role });
@@ -138,16 +170,29 @@ router.post('/login', async (req, res, next) => {
       doctorId = doctor?.id || null;
     }
 
+    // For patients, also fetch the allowSelfEntry flag from the patient record
+    let allowSelfEntry = false;
+    if (user.role === 'patient' && patientId) {
+      try {
+        const patRec = await prisma.patient.findUnique({
+          where: { id: patientId },
+          select: { allowSelfEntry: true },
+        });
+        allowSelfEntry = patRec?.allowSelfEntry ?? false;
+      } catch (_) { /* non-fatal — defaults to false */ }
+    }
+
     const payload = {
-      userId:   user.id,
-      username: user.username,
-      email:    user.email,
-      role:     user.role,
-      fullName: user.fullName,
-      status:   user.status,
+      userId:         user.id,
+      username:       user.username,
+      email:          user.email,
+      role:           user.role,
+      fullName:       user.fullName,
+      status:         user.status,
       patientId,
       doctorId,
-      orgName:  user.role === 'patient' ? 'patient' : 'hospital',
+      orgName:        user.role === 'patient' ? 'patient' : 'hospital',
+      allowSelfEntry,
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });

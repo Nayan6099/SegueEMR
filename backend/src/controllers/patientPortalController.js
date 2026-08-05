@@ -1,6 +1,8 @@
 const db = require('../config/db');
+const prisma = require('../config/prisma');
 const { generateId } = require('../utils/idGenerator');
 const crypto = require('crypto');
+
 
 class PatientPortalController {
   
@@ -117,7 +119,7 @@ class PatientPortalController {
   // --- Secure Messaging (Chat) ---
   async getMessages(req, res) {
     try {
-      const userId = req.user.userId;
+      const userId = req.user.patientId || req.user.userId;
       const { otherId } = req.query;
       const query = `
         SELECT * FROM messages 
@@ -134,14 +136,51 @@ class PatientPortalController {
 
   async sendMessage(req, res) {
     try {
-      const senderId = req.user.userId;
+      const senderId = req.user.patientId || req.user.userId;
       const { receiverId, content } = req.body;
       const id = generateId('MSG');
       await db.query(
         'INSERT INTO messages (id, sender_id, receiver_id, content) VALUES ($1, $2, $3, $4)',
         [id, senderId, receiverId, content]
       );
+
+      const io = req.app.get('io');
+      const connectedUsers = req.app.get('connectedUsers');
+      if (io && connectedUsers && connectedUsers.has(receiverId)) {
+        io.to(connectedUsers.get(receiverId)).emit('receive_message', {
+          id, sender_id: senderId, receiver_id: receiverId, content, sentAt: new Date(), isRead: false
+        });
+      }
+
       return res.json({ success: true, message: 'Message sent successfully' });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  async readMessages(req, res) {
+    try {
+      const currentUserId = req.user.patientId || req.user.userId;
+      const { otherId } = req.body;
+      
+      if (!otherId) {
+        return res.status(400).json({ success: false, error: 'otherId is required' });
+      }
+
+      await db.query(
+        'UPDATE messages SET is_read = true, read_at = NOW() WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false',
+        [currentUserId, otherId]
+      );
+
+      const io = req.app.get('io');
+      const connectedUsers = req.app.get('connectedUsers');
+      if (io && connectedUsers && connectedUsers.has(otherId)) {
+        io.to(connectedUsers.get(otherId)).emit('messages_read', {
+          readerId: currentUserId
+        });
+      }
+
+      return res.json({ success: true, message: 'Messages marked as read' });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -281,7 +320,7 @@ class PatientPortalController {
     }
   }
     // --- Lab Reports (Patient) ---
-    async getPatientLabReports(req, res) {
+    async getLabReports(req, res) {
         try {
             const patientId = req.user.role === 'patient' ? req.user.patientId : req.user.patientId;
             const labOrders = await db.query(
@@ -296,8 +335,102 @@ class PatientPortalController {
             return res.status(500).json({ success: false, error: err.message });
         }
     }
+
+  // --- Portal Permissions / Settings ---
+
+  /**
+   * GET /api/portal/settings
+   * Returns the patient's portal permission flags (currently: allowSelfEntry).
+   * The value is read live from the patients table via Prisma.
+   */
+  async getPortalSettings(req, res) {
+    try {
+      const patientId = req.user.patientId || req.user.userId;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: 'patientId not found in token' });
+      }
+
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { allowSelfEntry: true },
+      });
+
+      if (!patient) {
+        return res.status(404).json({ success: false, error: 'Patient record not found' });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          allowSelfEntry: patient.allowSelfEntry,
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * PATCH /api/portal/settings
+   * Staff-only: update the patient's portal permission flags.
+   * Body: { patientId: string, allowSelfEntry: boolean }
+   */
+  async updatePortalSettings(req, res) {
+    try {
+      const { patientId, allowSelfEntry } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: 'patientId is required' });
+      }
+
+      if (typeof allowSelfEntry !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'allowSelfEntry must be a boolean' });
+      }
+
+      const updated = await prisma.patient.update({
+        where: { id: patientId },
+        data: { allowSelfEntry },
+        select: { id: true, allowSelfEntry: true },
+      });
+
+      return res.json({ success: true, data: updated });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+  /**
+   * PATCH /api/patient/forms/:id/status
+   * Staff-only: approve or deny a record request (or any patient form).
+   * Body: { status: 'approved' | 'denied' | 'pending', notes? }
+   */
+  async updateFormStatus(req, res) {
+    try {
+      const { id } = req.params;
+      const { status, notes } = req.body;
+
+      const VALID = new Set(['pending', 'approved', 'denied', 'submitted']);
+      if (!status || !VALID.has(status)) {
+        return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${[...VALID].join(', ')}.` });
+      }
+
+      const existing = await db.query('SELECT id FROM patient_forms WHERE id = $1', [id]);
+      if (!existing.rows.length) {
+        return res.status(404).json({ success: false, error: 'Form not found.' });
+      }
+
+      await db.query(
+        'UPDATE patient_forms SET status = $1 WHERE id = $2',
+        [status, id]
+      );
+
+      return res.json({ success: true, message: `Form status updated to '${status}'.` });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }
 
 
 
     module.exports = new PatientPortalController();
+

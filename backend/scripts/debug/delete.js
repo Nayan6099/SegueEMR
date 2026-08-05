@@ -1,0 +1,1 @@
+const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); async function run() { await prisma.clinicalNote.delete({ where: { appointmentId: 'APP-DUMMY' } }); console.log('Deleted APP-DUMMY note'); } run().catch(console.error).finally(() => prisma.$disconnect());

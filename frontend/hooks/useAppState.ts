@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback } from 'react';
-import api from '../../services/api';
+import api from '../services/api';
+import { connectSocket, disconnectSocket } from '../services/socket';
 
 
 const ROLE_LABELS: Record<string, string> = {
@@ -16,31 +17,75 @@ const ROLE_LABELS: Record<string, string> = {
   organization: 'Organization'
 };
 
-export function useAppState(toast: any) {
+export function useAppState(toast: (msg: string, isError?: boolean) => void) {
 
   const showToast = (message: string, isError = false) => {
     toast(message, isError);
   };
 
-const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loginForm, setLoginForm] = useState({ userId: '', role: '', password: '' });
-  const [activeTab, setActiveTab] = useState('overview');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loginForm, setLoginForm] = useState({ userId: '', email: '', role: '', password: '' });
+  const [activeTab, setActiveTab] = useState('summary');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
 
+  const getStorageKeys = (roleOverride?: string) => {
+    if (roleOverride) {
+      const isStaff = roleOverride !== 'patient';
+      return {
+        token: isStaff ? 'segue_token_staff' : 'segue_token_patient',
+        user: isStaff ? 'segue_user_staff' : 'segue_user_patient'
+      };
+    }
+    if (typeof window === 'undefined') return { token: 'segue_token_patient', user: 'segue_user_patient' };
+    const path = window.location.pathname;
+    const isStaff = path.startsWith('/staff') || (path.startsWith('/dashboard') && !path.startsWith('/dashboard/patient'));
+    return {
+      token: isStaff ? 'segue_token_staff' : 'segue_token_patient',
+      user: isStaff ? 'segue_user_staff' : 'segue_user_patient'
+    };
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('segue_user');
+      const keys = getStorageKeys();
+      const storedUser = localStorage.getItem(keys.user);
       if (storedUser) {
         try {
           setCurrentUser(JSON.parse(storedUser));
         } catch (e) {
-          localStorage.removeItem('segue_user');
-          localStorage.removeItem('segue_token');
+          localStorage.removeItem(keys.user);
+          localStorage.removeItem(keys.token);
         }
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      const keys = getStorageKeys(currentUser.role);
+      const token = localStorage.getItem(keys.token);
+      if (token) {
+        const socket = connectSocket(token);
+        
+        socket.on('receive_message', (msg) => {
+          setChatMessages(prev => [...prev, { ...msg, is_read: msg.isRead }]);
+        });
+        
+        socket.on('messages_read', ({ readerId }) => {
+          setChatMessages(prev => prev.map(m => 
+            m.receiver_id === readerId ? { ...m, is_read: true } : m
+          ));
+        });
+
+        return () => {
+          socket.off('receive_message');
+          socket.off('messages_read');
+          disconnectSocket();
+        };
+      }
+    }
+  }, [currentUser]);
 
   // States for data
   const [records, setRecords] = useState<EMRRecord[]>([]);
@@ -194,13 +239,19 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('1. Login handler function triggered');
     const trimmedUserId = (loginForm.userId || '').trim();
-    if (trimmedUserId && loginForm.role && loginForm.password) {
+    console.log('1. Login handler function triggered', { userId: trimmedUserId, email: loginForm.email, role: loginForm.role, pwd: loginForm.password });
+    if ((trimmedUserId || loginForm.email) && loginForm.role && loginForm.password) {
       setLoading(true);
       try {
         const orgName = loginForm.role === 'patient' ? 'patient' : 'hospital';
-        const res = await api.login(trimmedUserId, orgName, loginForm.role, loginForm.password) as any;
+        const res = await api.login({
+          userId: trimmedUserId,
+          email: loginForm.email,
+          orgName,
+          role: loginForm.role,
+          password: loginForm.password
+        }) as any;
         console.log('2. Axios API response received:', res);
 
         // The backend returns success, token, and user at the top level, but the 
@@ -209,9 +260,10 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
         const user = res.user || res.data?.user;
 
         if (res.success && token && user) {
-          localStorage.setItem('segue_token', token);
-          localStorage.setItem('segue_user', JSON.stringify(user));
-          console.log('3. Token localStorage storage successful:', { tokenSet: !!token });
+          const keys = getStorageKeys(user.role);
+          localStorage.setItem(keys.token, token);
+          localStorage.setItem(keys.user, JSON.stringify(user));
+          console.log('3. Token localStorage storage successful:', { tokenSet: !!token, keys });
 
           console.log('4/5/6/7. Dashboard rendering approach:');
           console.log('- No next/router or next/navigation router.push is executed.');
@@ -238,8 +290,9 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('segue_token');
-    localStorage.removeItem('segue_user');
+    const keys = getStorageKeys(currentUser?.role);
+    localStorage.removeItem(keys.token);
+    localStorage.removeItem(keys.user);
     setCurrentUser(null);
     setLoginForm({ userId: '', role: '', password: '' });
     // Reset data
@@ -283,17 +336,18 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
       const { role, userId, orgName } = currentUser;
 
       if (role === 'patient') {
+        const patientId = currentUser.patientId || userId;
         const [recRes, aptsRes, rxRes, labsRes, invRes, algRes, prbRes, rflRes, msgRes, keysRes, notifRes] = await Promise.all([
-          api.getPatientRecords(userId, userId, orgName),
-          api.listAppointments({ patientId: userId }),
-          api.listPrescriptions({ patientId: userId }),
-          api.listLabOrders({ patientId: userId }),
-          api.listInvoices({ patientId: userId }),
-          api.getAllergies(userId),
-          api.getProblems(userId),
-          api.listRefillRequests(userId),
-          api.getMessages(userId, 'dr.smith'),
-          api.getApiKeys(userId),
+          api.getPatientRecords(patientId, patientId, orgName),
+          api.listAppointments({ patientId }),
+          api.listPrescriptions({ patientId }),
+          api.listLabOrders({ patientId }),
+          api.listInvoices({ patientId }),
+          api.getAllergies(patientId),
+          api.getProblems(patientId),
+          api.listRefillRequests(patientId),
+          api.getMessages(patientId, 'dr.smith'),
+          api.getApiKeys(patientId),
           api.listNotifications()
         ]);
         setRecords(recRes.data || []);
@@ -304,7 +358,13 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
         setAllergiesList(algRes.data || []);
         setProblemsList(prbRes.data || []);
         setRefillRequests(rflRes.data || []);
-        setChatMessages(msgRes.data || []);
+        const msgData = msgRes.data || [];
+        setChatMessages(msgData);
+        if (msgData.some((m: any) => !m.is_read && m.sender_id !== userId)) {
+          api.readMessages('dr.smith').then(() => {
+            setChatMessages(prev => prev.map(m => m.sender_id !== userId ? { ...m, is_read: true } : m));
+          }).catch(() => {});
+        }
         setApiKeysList(keysRes.data || []);
         setNotifications(notifRes.data || []);
       } else if (role === 'doctor') {
@@ -565,7 +625,8 @@ const [currentUser, setCurrentUser] = useState<User | null>(null);
     e.preventDefault();
     if (!currentUser || !chatInput.trim()) return;
     try {
-      await api.sendMessage({ senderId: currentUser.userId, receiverId: 'dr.smith', content: chatInput });
+      const actualSenderId = currentUser.role === 'patient' && currentUser.patientId ? currentUser.patientId : currentUser.userId;
+      await api.sendMessage({ senderId: actualSenderId, receiverId: 'dr.smith', content: chatInput });
       setChatInput('');
       fetchData();
     } catch (error: any) {

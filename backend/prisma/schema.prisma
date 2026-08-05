@@ -40,26 +40,28 @@ model User {
 }
 
 model Patient {
-  id               String         @id
-  userId           String?        @unique @map("user_id")
+  id               String             @id
+  userId           String?            @unique @map("user_id")
   name             String
-  dateOfBirth      DateTime       @map("date_of_birth")
+  dateOfBirth      DateTime           @map("date_of_birth")
   gender           String
-  phone            String?        @map("phone")
-  contactInfo      String?        @map("contact_info")
+  phone            String?            @map("phone")
+  contactInfo      String?            @map("contact_info")
   address          String?
-  emergencyContact String?        @map("emergency_contact")
-  bloodGroup       String?        @map("blood_group")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
+  emergencyContact String?            @map("emergency_contact")
+  bloodGroup       String?            @map("blood_group")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at")
+  allow_self_entry Boolean            @default(false)
   appointments     Appointment[]
   clinicalNotes    ClinicalNote[]
   ehrMetadata      EHRMetadata[]
+  EligibilityCheck EligibilityCheck[]
   invoices         Invoice[]
   labOrders        LabOrder[]
   prescriptions    Prescription[]
   vitals           Vitals[]
-  user             User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("patients")
 }
@@ -115,6 +117,7 @@ model Appointment {
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
+  clinicalNote   ClinicalNote?
   fhirResourceId String?
   doctor         Doctor   @relation(fields: [doctorId], references: [id])
   patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -151,31 +154,31 @@ model Medication {
 }
 
 model LabOrder {
-  id                  String    @id @default(uuid())
-  patientId           String
-  patientName         String
-  doctorId            String
-  testName            String
-  status              String    @default("pending")
-  notes               String?
-  resultSummary       String?
-  critical            Boolean   @default(false)
-  resultFields        String?
-  processedBy         String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @default(now()) @updatedAt
-  doctorNotifiedAt    DateTime?
-  patientNotifiedAt   DateTime?
-  fhirResourceId      String?
-  fhirObservationIds  String[] @default([])
+  id                      String    @id @default(uuid())
+  patientId               String
+  patientName             String
+  doctorId                String
+  testName                String
+  status                  String    @default("pending")
+  notes                   String?
+  resultSummary           String?
+  critical                Boolean   @default(false)
+  resultFields            String?
+  processedBy             String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @default(now()) @updatedAt
+  fhirResourceId          String?
+  externalReferenceId     String?
+  assignedLabId           String?
+  doctorNotifiedAt        DateTime?
+  patientNotifiedAt       DateTime?
+  fhirBinaryId            String?
   fhirDocumentReferenceId String?
-  pdfBlobName         String?
-  pdfBlobUrl          String?
-  fhirBinaryId        String?
-  externalReferenceId String?
-  assignedLabId       String?
-  doctor              Doctor    @relation(fields: [doctorId], references: [id])
-  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  fhirObservationIds      String[]  @default([])
+  pdfBlobName             String?
+  pdfBlobUrl              String?
+  doctor                  Doctor    @relation(fields: [doctorId], references: [id])
+  patient                 Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
 }
 
 model LabAudit {
@@ -188,17 +191,18 @@ model LabAudit {
 }
 
 model Invoice {
-  id          String     @id @default(uuid())
-  patientId   String
-  patientName String
-  totalAmount Float      @default(0)
-  status      String     @default("unpaid")
-  createdBy   String
-  paidAt      DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @default(now()) @updatedAt
-  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  items       LineItem[]
+  id            String     @id @default(uuid())
+  patientId     String
+  patientName   String
+  totalAmount   Float      @default(0)
+  status        String     @default("unpaid")
+  createdBy     String
+  paidAt        DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @default(now()) @updatedAt
+  appointmentId String?    @unique
+  patient       Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  items         LineItem[]
 }
 
 model LineItem {
@@ -206,6 +210,10 @@ model LineItem {
   invoiceId   String
   description String
   amount      Float
+  cptCode     String?
+  icd10Code   String?
+  modifiers   String?
+  quantity    Int     @default(1)
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
@@ -221,8 +229,9 @@ model ClinicalNote {
   recordedBy     String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt
-  doctor         Doctor   @relation(fields: [doctorId], references: [id])
-  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor         Doctor       @relation(fields: [doctorId], references: [id])
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id])
 }
 
 model Vitals {
@@ -251,8 +260,8 @@ model Notification {
 }
 
 model Allergy {
-  id        String @id
-  patientId String @map("patient_id")
+  id        String  @id
+  patientId String  @map("patient_id")
   allergen  String
   severity  String
   reaction  String?
@@ -261,20 +270,20 @@ model Allergy {
 }
 
 model Problem {
-  id          String   @id
-  patientId   String   @map("patient_id")
+  id          String  @id
+  patientId   String  @map("patient_id")
   code        String?
   description String
-  onsetDate   String?  @map("onset_date")
+  onsetDate   String? @map("onset_date")
 
   @@map("problems")
 }
 
 model MedicationRefill {
-  id             String @id
-  prescriptionId String @map("prescription_id")
+  id             String  @id
+  prescriptionId String  @map("prescription_id")
   notes          String?
-  status         String @default("pending")
+  status         String  @default("pending")
 
   @@map("medication_refills")
 }
@@ -291,17 +300,19 @@ model PatientForm {
 }
 
 model Message {
-  id         String   @id
-  senderId   String   @map("sender_id")
-  receiverId String   @map("receiver_id")
+  id         String    @id @default(uuid())
+  senderId   String    @map("sender_id")
+  receiverId String    @map("receiver_id")
   content    String
-  sentAt     DateTime @default(now()) @map("sent_at")
+  sentAt     DateTime  @default(now()) @map("sent_at")
+  isRead     Boolean   @default(false) @map("is_read")
+  readAt     DateTime? @map("read_at")
 
   @@map("messages")
 }
 
 model PatientApiKey {
-  id         String   @id
+  id         String   @id @default(uuid())
   patientId  String   @map("patient_id")
   apiKeyHash String   @map("api_key_hash")
   name       String
@@ -310,4 +321,91 @@ model PatientApiKey {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("patient_api_keys")
+}
+
+model Authorization {
+  id            String   @id @default(uuid())
+  patientId     String
+  authorId      String
+  authorName    String
+  requestedItem String
+  payer         String
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+}
+
+model EligibilityCheck {
+  id          String   @id @default(uuid())
+  patientId   String
+  patientName String
+  payer       String
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  patients    Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+model OfficeNote {
+  id         String   @id @default(uuid())
+  patientId  String
+  authorId   String
+  authorName String
+  content    String
+  createdAt  DateTime @default(now())
+}
+
+model PatientEducation {
+  id         String   @id @default(uuid())
+  patientId  String
+  authorId   String
+  authorName String
+  title      String
+  content    String
+  createdAt  DateTime @default(now())
+}
+
+model patient_intake_audit_logs {
+  id         Int       @id @default(autoincrement())
+  intake_id  String?   @db.VarChar(50)
+  changed_by String?   @db.VarChar(50)
+  old_values Json?
+  new_values Json?
+  changed_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model patient_intakes {
+  id                      String    @id @db.VarChar(50)
+  patient_id              String?   @db.VarChar(50)
+  doctor_id               String?   @db.VarChar(50)
+  marital_status          String?   @db.VarChar(50)
+  contact_phone           String?   @db.VarChar(50)
+  contact_email           String?   @db.VarChar(100)
+  emergency_contact       String?   @db.VarChar(255)
+  employer_details        String?   @db.VarChar(255)
+  insurance_provider      String?   @db.VarChar(100)
+  insurance_policy_number String?   @db.VarChar(100)
+  preferred_language      String?   @db.VarChar(50)
+  ethnicity               String?   @db.VarChar(50)
+  hipaa_consent           Boolean?  @default(false)
+  reason_for_visit        String?
+  symptoms                String?
+  medical_history         String?
+  allergies               String?
+  medications             String?
+  vitals                  Json?
+  status                  String?   @default("checked_in") @db.VarChar(50)
+  created_at              DateTime? @default(now()) @db.Timestamp(6)
+  updated_at              DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model recalls {
+  id           String   @id @default(uuid())
+  patient_id   String
+  patient_name String
+  doctor_id    String
+  reason       String
+  due_date     DateTime
+  status       String   @default("pending")
+  notes        String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
 }

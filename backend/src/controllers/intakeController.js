@@ -1,6 +1,8 @@
 const db = require('../config/db');
 const { generateId } = require('../utils/idGenerator');
 const dataverseService = require('../services/dataverseService');
+const crypto = require('crypto');
+const prisma = require('../config/prisma');
 
 class IntakeController {
   async createIntake(req, res) {
@@ -372,14 +374,47 @@ class IntakeController {
       }
 
       const result = await db.query(
-        `SELECT id, name FROM patients WHERE LOWER(name) ILIKE $1 ORDER BY name ASC LIMIT 20`,
+        `SELECT id, user_id, name FROM patients WHERE LOWER(name) ILIKE $1 OR LOWER(id) ILIKE $1 OR LOWER(user_id) ILIKE $1 ORDER BY name ASC LIMIT 20`,
         [`%${q.trim().toLowerCase()}%`]
       );
 
       return res.json({
         success: true,
-        data: result.rows.map(r => ({ id: r.id, name: r.name }))
+        data: result.rows.map(r => ({ id: r.id, userId: r.user_id, name: r.name }))
       });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  async getEligibilityChecks(req, res) {
+    try {
+      // Allow filtering by date (from, to)
+      const { from, to } = req.query;
+      const where = {};
+      if (from || to) {
+        where.createdAt = {};
+        if (from) where.createdAt.gte = new Date(from);
+        if (to) where.createdAt.lte = new Date(to);
+      }
+      
+      const checks = await prisma.eligibilityCheck.findMany({
+        where,
+        orderBy: { createdAt: 'desc' }
+      });
+      return res.json({ success: true, data: checks });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  async addEligibilityCheck(req, res) {
+    try {
+      const { patientId, patientName, payer, status } = req.body;
+      const check = await prisma.eligibilityCheck.create({
+        data: { id: crypto.randomUUID(), patientId, patientName, payer, status: status || 'pending' }
+      });
+      return res.status(201).json({ success: true, data: check });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }

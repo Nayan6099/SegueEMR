@@ -180,7 +180,17 @@ export function NurseDashboard(props: any) {
               <p className="text-sm text-slate-500 mt-1">Manage check-in status, take vitals, and handle scheduled consultations.</p>
             </div>
 
-            <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
+            <div className="flex gap-2 border-b border-slate-200 pb-2 flex-wrap">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-4 py-2 text-sm font-semibold rounded ${(!activeTab || activeTab === 'overview') ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                Consultations &amp; Check-ins
+              </button>
+            </div>
+
+            {(!activeTab || activeTab === 'overview') && (
+              <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Patient Consultations &amp; Check-ins</h2>
               {appointments.length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-8">No appointments scheduled today.</p>
@@ -278,6 +288,7 @@ export function NurseDashboard(props: any) {
                 </div>
               )}
             </div>
+            )}
           </div>
   );
 }

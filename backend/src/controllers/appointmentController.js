@@ -19,6 +19,20 @@ const { assertRequired } = require('../utils/validators');
 
 const genId = () => `APT-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
+/**
+ * Accepted appointment statuses. Add new values here to allow them
+ * system-wide — the DB column is a plain String so this is the single
+ * enforcement point in the API layer.
+ */
+const VALID_STATUSES = new Set([
+  'scheduled',
+  'confirmed',
+  'completed',
+  'cancelled',
+  'no-show',    // Patient did not attend; added per OpenEMR parity
+  'rescheduled',
+]);
+
 const mapAppointment = (apt) => {
   if (!apt) return null;
   return {
@@ -33,6 +47,7 @@ const mapAppointment = (apt) => {
     status:        apt.status,
     reason:        apt.notes,
     notes:         apt.notes,
+    hasClinicalNote: !!apt.clinicalNote,
     createdAt:     apt.createdAt,
     updatedAt:     apt.updatedAt,
   };
@@ -120,7 +135,15 @@ class AppointmentController {
       }
 
       const data = {};
-      if (status)                      data.status = status;
+      if (status) {
+        if (!VALID_STATUSES.has(status)) {
+          throw new AppError(
+            ERROR_CODES.VALIDATION_ERROR || 'VALIDATION_ERROR',
+            `Invalid status '${status}'. Accepted values: ${[...VALID_STATUSES].join(', ')}`,
+          );
+        }
+        data.status = status;
+      }
       if (notes !== undefined)         data.notes  = notes;
       if (scheduledAt || scheduledTime) {
         data.scheduledTime = new Date(scheduledAt || scheduledTime);
@@ -169,6 +192,7 @@ class AppointmentController {
 
       const appointments = await prisma.appointment.findMany({
         where,
+        include: { clinicalNote: { select: { id: true } } },
         orderBy: { scheduledTime: 'asc' },
       });
 
@@ -216,7 +240,9 @@ class AppointmentController {
         where: {
           doctorId,
           scheduledTime: { gte: start, lte: end },
-          status: { not: 'cancelled' },
+          // Exclude terminal statuses — the slot is occupied for any non-terminal status.
+          // 'no-show' still counts as occupied (the original slot was taken).
+          status: { notIn: ['cancelled'] },
         },
         select: { scheduledTime: true },
       });

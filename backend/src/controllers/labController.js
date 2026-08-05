@@ -172,6 +172,56 @@ class LabController {
         }
     }
 
+    async batchUploadResults(req, res) {
+        try {
+            const { results } = req.body; // Array of { labOrderId, resultSummary, resultFields }
+            const processedBy = req.user.userId;
+
+            if (!Array.isArray(results) || results.length === 0) {
+                return res.status(400).json({ success: false, error: 'Results array is required' });
+            }
+
+            const updatedOrders = [];
+
+            for (const item of results) {
+                const { labOrderId, resultSummary, resultFields } = item;
+                if (!labOrderId) continue;
+
+                let critical = false;
+                if (resultFields) {
+                    const chol = Number(resultFields.cholesterol);
+                    const hb = Number(resultFields.hemoglobin);
+                    const gluc = Number(resultFields.glucose);
+
+                    if (chol > 240) critical = true;
+                    if (hb > 0 && (hb < 10 || hb > 18)) critical = true;
+                    if (gluc > 0 && (gluc > 200 || gluc < 60)) critical = true;
+                }
+
+                const labOrder = await prisma.labOrder.update({
+                    where: { id: labOrderId },
+                    data: {
+                        resultSummary: resultSummary || '',
+                        resultFields: resultFields ? JSON.stringify(resultFields) : '{}',
+                        critical,
+                        processedBy,
+                        status: 'completed'
+                    }
+                });
+
+                updatedOrders.push(labOrder);
+                await logActivity('LAB_RESULT_UPLOADED_BATCH', processedBy, { labOrderId, critical });
+                
+                // Fire and forget
+                fhirService.syncLabOrder(labOrder).catch(() => {});
+            }
+
+            return res.json({ success: true, count: updatedOrders.length, data: updatedOrders.map(mapLabOrder) });
+        } catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    }
+
     async listLabOrders(req, res) {
         try {
             const { patientId, doctorId, status } = req.query;

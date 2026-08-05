@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const logger = require('../utils/logger');
 
 const {
   DATAVERSE_ENVIRONMENT_URL,
@@ -40,7 +41,7 @@ async function getAccessToken() {
     tokenExpiresAt = Date.now() + response.data.expires_in * 1000;
     return accessToken;
   } catch (error) {
-    console.error('Error fetching Dataverse access token:', error.response?.data || error.message);
+    logger.error('[dataverse:getAccessToken]', { error: error.response?.data || error.message });
     throw new Error('Failed to authenticate with Azure Dataverse');
   }
 }
@@ -73,7 +74,7 @@ async function syncEntity(entitySetName, data, id = null) {
 
     return response.data;
   } catch (error) {
-    console.error(`Error syncing ${entitySetName} to Dataverse:`, error.response?.data || error.message);
+    logger.error('[dataverse:syncEntity]', { entitySetName, id, error: error.response?.data || error.message });
     throw new Error(`Dataverse sync failed: ${error.message}`);
   }
 }
@@ -106,7 +107,7 @@ async function findUser(userId) {
     }
     return null;
   } catch (error) {
-    console.error('Error finding user in Dataverse:', error.response?.data || error.message);
+    logger.error('[dataverse:findUser]', { userId, error: error.response?.data || error.message });
     throw error;
   }
 }
@@ -148,7 +149,7 @@ async function findOrganization(orgName) {
     }
     return null;
   } catch (error) {
-    console.error('Error finding org in Dataverse:', error.response?.data || error.message);
+    logger.error('[dataverse:findOrganization]', { orgName, error: error.response?.data || error.message });
     throw error;
   }
 }
@@ -200,7 +201,7 @@ async function listStaff(orgName) {
       status: item.statecode === 0 ? 'active' : 'inactive'
     }));
   } catch (error) {
-    console.error('Error listing staff in Dataverse:', error.response?.data || error.message);
+    logger.error('[dataverse:listStaff]', { orgName, error: error.response?.data || error.message });
     throw error;
   }
 }
@@ -218,9 +219,9 @@ async function syncUserToDataverse(user) {
   };
   try {
     await syncEntity('systemusers', payload);
-    console.log(`[Dataverse] Successfully synced user ${user.id} to systemuser`);
+    logger.info('[dataverse:syncUser]', { msg: `Successfully synced user ${user.id} to systemuser` });
   } catch (error) {
-    console.warn(`[Dataverse] Failed to sync user ${user.id} to systemuser: ${error.message}`);
+    logger.warn('[dataverse:syncUser]', { msg: `Failed to sync user ${user.id} to systemuser`, error: error.message });
   }
 }
 
@@ -241,9 +242,9 @@ async function syncPatientToDataverse(patient) {
   };
   try {
     await syncEntity('contacts', payload);
-    console.log(`[Dataverse] Successfully synced patient ${patient.id} to contact`);
+    logger.info('[dataverse:syncPatient]', { msg: `Successfully synced patient ${patient.id} to contact` });
   } catch (error) {
-    console.warn(`[Dataverse] Failed to sync patient ${patient.id} to contact: ${error.message}`);
+    logger.warn('[dataverse:syncPatient]', { msg: `Failed to sync patient ${patient.id} to contact`, error: error.message });
   }
 }
 
@@ -260,9 +261,9 @@ async function syncDoctorToDataverse(doctor) {
   };
   try {
     await syncEntity('bookableresources', payload);
-    console.log(`[Dataverse] Successfully synced doctor ${doctor.id} to bookableresource`);
+    logger.info('[dataverse:syncDoctor]', { msg: `Successfully synced doctor ${doctor.id} to bookableresource` });
   } catch (error) {
-    console.warn(`[Dataverse] Failed to sync doctor ${doctor.id} to bookableresource: ${error.message}`);
+    logger.warn('[dataverse:syncDoctor]', { msg: `Failed to sync doctor ${doctor.id} to bookableresource`, error: error.message });
   }
 }
 
