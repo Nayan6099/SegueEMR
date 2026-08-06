@@ -4,7 +4,7 @@
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDashboard } from '../../../context/DashboardContext';
-import { LoginScreen } from '../../components/LoginScreen';
+import { StaffLoginForm } from '../../components/StaffLoginForm';
 import { getDashboardRoute } from '../../../utils/getDashboardRoute';
 
 export default function StaffLogin() {
@@ -18,16 +18,16 @@ export default function StaffLogin() {
   }, [currentUser, router]);
 
   if (currentUser) {
-    return null; // Or a loading spinner during redirect
+    return null;
   }
 
   return (
-    <LoginScreen
+    <StaffLoginForm
       toast={toast}
       loginForm={loginForm}
       setLoginForm={setLoginForm}
       handleLogin={handleLogin}
-      variant="staff"
     />
   );
 }
+

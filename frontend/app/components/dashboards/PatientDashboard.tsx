@@ -603,17 +603,24 @@ export function PatientDashboard(props: any) {
                     {chatMessages.length === 0 ? (
                       <p className="text-slate-400 text-center text-xs py-12">Send a message to start a conversation with Dr. smith.</p>
                     ) : (
-                      chatMessages.map((msg) => (
-                        <div key={msg.id} className={`flex flex-col max-w-xs p-3 rounded-lg ${msg.sender_id === currentUser?.userId ? 'bg-indigo-600 text-white ml-auto' : 'bg-white border border-slate-200 text-slate-800'}`}>
-                          <p className="text-sm leading-relaxed">{msg.content}</p>
-                          <span className="text-[10px] mt-1 text-right opacity-80">
-                            {new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            {msg.sender_id === currentUser?.userId && (
-                              <span className="ml-1">{msg.is_read ? '✓✓' : '✓'}</span>
-                            )}
-                          </span>
-                        </div>
-                      ))
+                      chatMessages.map((msg: any) => {
+                        const isMe = (msg.sender_id || msg.senderId) === (currentUser?.patientId || currentUser?.userId);
+                        return (
+                          <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl text-sm ${isMe ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'}`}>
+                              <p>{msg.content}</p>
+                              {(msg.sent_at || msg.sentAt) && (
+                                <p className={`text-[10px] mt-1 ${isMe ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                  {new Date(msg.sent_at || msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {isMe && (
+                                    <span className="ml-1 text-[9px]">{ (msg.is_read || msg.isRead) ? '✓✓' : '✓' }</span>
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
 

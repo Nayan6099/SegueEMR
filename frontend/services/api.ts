@@ -697,8 +697,16 @@ const api = {
   },
 
   getClinicalNote: async (appointmentId: string): Promise<ApiResponse<ClinicalNote>> => {
-    const { data } = await apiClient.get(`/clinical-notes/appointment/${appointmentId}`);
-    return data;
+    try {
+      const { data } = await apiClient.get(`/clinical-notes/appointment/${appointmentId}`);
+      return data;
+    } catch (err: any) {
+      // A 404 simply means no SOAP note has been written for this appointment yet — not an error
+      if (err?.message?.includes('could not be found') || err?.response?.status === 404) {
+        return { success: false, data: null as any };
+      }
+      throw err;
+    }
   },
 
   createClinicalNote: async (payload: Partial<ClinicalNote>): Promise<ApiResponse<ClinicalNote>> => {
@@ -781,8 +789,8 @@ const api = {
     return data;
   },
 
-  searchPatients: async (q: string): Promise<{ success: boolean; data: PatientRecord[] }> => {
-    const { data } = await apiClient.get('/intake/patients/search', { params: { q } });
+  searchPatients: async (q: string, doctorId?: string): Promise<{ success: boolean; data: PatientRecord[] }> => {
+    const { data } = await apiClient.get('/intake/patients/search', { params: { q, doctorId } });
     return data;
   },
 

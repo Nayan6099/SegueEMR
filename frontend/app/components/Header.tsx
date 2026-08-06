@@ -10,9 +10,7 @@ export function Header(props: any) {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold text-slate-900 flex items-center gap-1.5">
-                <span className="text-indigo-600">🏥</span> SegueEMR
-              </span>
+              <img src="/logo.png" alt="SegueEMR Logo" className="h-12 w-auto object-contain" />
             </div>
 
             <div className="flex items-center gap-4">

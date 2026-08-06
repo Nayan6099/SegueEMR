@@ -114,6 +114,8 @@ export function useAppState(toast: (msg: string, isError?: boolean) => void) {
   const [selectedCCDAFile, setSelectedCCDAFile] = useState<File | null>(null);
   const [grantAccessForm, setGrantAccessForm] = useState({ recordId: '', doctorId: '' });
   const [appointmentForm, setAppointmentForm] = useState({ patientId: '', patientName: '', doctorId: 'dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
+  const [appointmentAvailableSlots, setAppointmentAvailableSlots] = useState<string[]>([]);
+  const [appointmentConflictError, setAppointmentConflictError] = useState<string | null>(null);
   const [rxForm, setRxForm] = useState({ patientId: '', patientName: '', medName: '', dosage: '', frequency: '', duration: '', assignedPharmacyId: '' });
   const [vitalsHistory, setVitalsHistory] = useState<Vitals[]>([]);
   const [vitalsForm, setVitalsForm] = useState({ temperature: '', bloodPressure: '', pulse: '', spo2: '' });
@@ -711,26 +713,34 @@ export function useAppState(toast: (msg: string, isError?: boolean) => void) {
 
       await api.createAppointment({
         ...appointmentForm,
-        patientId: finalPatientId,
-        patientName: finalPatientName,
-        status: appointmentForm.status as any
-      });
-      showToast('Appointment successfully scheduled');
-      setAppointmentForm({ patientId: '', patientName: '', doctorId: 'dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
-      setAppointmentPicker({
-        isNew: false,
-        patientId: '',
-        patientName: '',
-        dateOfBirth: '',
-        gender: 'Male',
-        contactPhone: '',
-        contactEmail: ''
-      });
-      fetchData();
-    } catch (error: any) {
-      showToast(error.response?.data?.error || error.message || 'Action failed', true);
-    }
-  };
+          patientId: finalPatientId,
+          patientName: finalPatientName,
+          status: appointmentForm.status as any
+        });
+        showToast('Appointment successfully scheduled');
+        setAppointmentConflictError(null);
+        setAppointmentAvailableSlots([]);
+        setAppointmentForm({ patientId: '', patientName: '', doctorId: 'dr.smith', doctorName: 'Dr. Smith', scheduledTime: '', notes: '', status: 'scheduled' });
+        setAppointmentPicker({
+          isNew: false,
+          patientId: '',
+          patientName: '',
+          dateOfBirth: '',
+          gender: 'Male',
+          contactPhone: '',
+          contactEmail: ''
+        });
+        const res = await api.listAppointments();
+        if (res.success) setAppointments(res.data || []);
+      } catch (error: any) {
+        if (error.response?.status === 409 && error.response?.data?.available_slots) {
+          setAppointmentConflictError(error.response.data.error || 'Conflict');
+          setAppointmentAvailableSlots(error.response.data.available_slots);
+        } else {
+          showToast(error.response?.data?.error || error.message || 'Action failed', true);
+        }
+      }
+    };
 
   const handleUpdateAptStatus = async (id: string, status: 'check-in' | 'completed' | 'cancelled' | 'scheduled' | 'waitlisted') => {
     try {
@@ -1177,6 +1187,11 @@ export function useAppState(toast: (msg: string, isError?: boolean) => void) {
     analytics,
     apiKeysList,
     appointmentForm,
+    appointmentAvailableSlots,
+    appointmentConflictError,
+    setAppointmentForm,
+    setAppointmentAvailableSlots,
+    setAppointmentConflictError,
     appointmentPicker,
     appointments,
     auditHistory,

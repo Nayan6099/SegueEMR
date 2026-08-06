@@ -368,15 +368,31 @@ class IntakeController {
 
   async searchPatients(req, res) {
     try {
-      const { q } = req.query;
+      const { q, doctorId } = req.query;
       if (!q || q.trim().length < 1) {
         return res.json({ success: true, data: [] });
       }
 
-      const result = await db.query(
-        `SELECT id, user_id, name FROM patients WHERE LOWER(name) ILIKE $1 OR LOWER(id) ILIKE $1 OR LOWER(user_id) ILIKE $1 ORDER BY name ASC LIMIT 20`,
-        [`%${q.trim().toLowerCase()}%`]
-      );
+      let finalDoctorId = doctorId;
+      if (req.user && req.user.role === 'doctor') {
+        finalDoctorId = req.user.doctorId || req.user.userId;
+      }
+
+      let query = `SELECT id, user_id, name FROM patients WHERE LOWER(name) ILIKE $1 OR LOWER(id) ILIKE $1 OR LOWER(user_id) ILIKE $1 ORDER BY name ASC LIMIT 20`;
+      const params = [`%${q.trim().toLowerCase()}%`];
+
+      if (finalDoctorId) {
+        query = `
+          SELECT DISTINCT p.id, p.user_id, p.name 
+          FROM patients p
+          JOIN "Appointment" a ON p.id = a."patientId"
+          WHERE a."doctorId" = $2 AND (LOWER(p.name) ILIKE $1 OR LOWER(p.id) ILIKE $1 OR LOWER(p.user_id) ILIKE $1)
+          ORDER BY p.name ASC LIMIT 20
+        `;
+        params.push(finalDoctorId);
+      }
+
+      const result = await db.query(query, params);
 
       return res.json({
         success: true,

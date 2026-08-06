@@ -104,6 +104,10 @@ export function ReceptionistDashboard(props: any) {
     setAnalytics,
     setApiKeysList,
     setAppointmentForm,
+    appointmentAvailableSlots,
+    appointmentConflictError,
+    setAppointmentAvailableSlots,
+    setAppointmentConflictError,
     setAppointmentPicker,
     setAppointments,
     setAuditHistory,
@@ -248,6 +252,35 @@ export function ReceptionistDashboard(props: any) {
                         className="mt-1 block w-full rounded border border-slate-300 px-3 py-1.5 text-sm"
                       />
                     </div>
+                    {appointmentConflictError && (
+                      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-sm text-red-600 font-medium flex items-center gap-1.5 mb-2">
+                          <AlertCircle className="h-4 w-4" /> {appointmentConflictError}
+                        </p>
+                        {appointmentAvailableSlots?.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-xs text-red-500 font-semibold mb-2">Available slots on this date:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {appointmentAvailableSlots.map((slot: string) => (
+                                <button
+                                  key={slot}
+                                  type="button"
+                                  onClick={() => {
+                                    const d = new Date(slot);
+                                    const formatted = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                                    setAppointmentForm({ ...appointmentForm, scheduledTime: formatted });
+                                    setAppointmentConflictError(null);
+                                  }}
+                                  className="px-2 py-1 bg-white border border-red-200 hover:bg-red-100 text-red-700 text-xs rounded transition-colors"
+                                >
+                                  {new Date(slot).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button
                       type="submit"
                       disabled={loading}

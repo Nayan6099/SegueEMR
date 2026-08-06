@@ -107,8 +107,8 @@ apiClient.interceptors.response.use(
       ? rawServerMessage
       : (HTTP_ERROR_MESSAGES[status] ?? DEFAULT_ERROR_MESSAGE);
 
-    // In development, log full error for debugging
-    if (process.env.NODE_ENV === 'development') {
+    // In development, log full error for debugging — skip 404s (expected "not found" responses)
+    if (process.env.NODE_ENV === 'development' && status !== 404) {
       console.error('[API Error]', { status, data, url: error.config?.url, userMessage });
     }
 

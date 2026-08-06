@@ -397,15 +397,17 @@ model patient_intakes {
   updated_at              DateTime? @default(now()) @db.Timestamp(6)
 }
 
-model recalls {
-  id           String   @id @default(uuid())
-  patient_id   String
-  patient_name String
-  doctor_id    String
-  reason       String
-  due_date     DateTime
-  status       String   @default("pending")
-  notes        String?
-  created_at   DateTime @default(now())
-  updated_at   DateTime @default(now())
+model Recall {
+  id          String   @id @default(uuid())
+  patientId   String   @map("patient_id")
+  patientName String   @map("patient_name")
+  doctorId    String   @map("doctor_id")
+  reason      String
+  dueDate     DateTime @map("due_date")
+  status      String   @default("pending")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @map("updated_at")
+
+  @@map("recalls")
 }

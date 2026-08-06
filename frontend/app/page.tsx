@@ -4,7 +4,7 @@
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDashboard } from '../context/DashboardContext';
-import { LoginScreen } from './components/LoginScreen';
+import { PatientLoginForm } from './components/PatientLoginForm';
 import { getDashboardRoute } from '../utils/getDashboardRoute';
 
 export default function Home() {
@@ -18,16 +18,15 @@ export default function Home() {
   }, [currentUser, router]);
 
   if (currentUser) {
-    return null; // Or a loading spinner during redirect
+    return null;
   }
 
   return (
-    <LoginScreen
+    <PatientLoginForm
       toast={toast}
       loginForm={loginForm}
       setLoginForm={setLoginForm}
       handleLogin={handleLogin}
-      variant="patient"
     />
   );
 }

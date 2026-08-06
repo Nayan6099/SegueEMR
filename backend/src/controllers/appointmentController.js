@@ -86,6 +86,49 @@ class AppointmentController {
 
       const doctorRecord = await resolveDoctorId(rawDoctorId);
       const patientRecord = await resolvePatientId(finalPatientId);
+      const appointmentTime = new Date(targetTime);
+
+      // Conflict Check
+      const existingConflict = await prisma.appointment.findFirst({
+        where: {
+          doctorId: doctorRecord.id,
+          scheduledTime: appointmentTime,
+          status: { notIn: ['cancelled'] },
+        }
+      });
+
+      if (existingConflict) {
+        const start = new Date(appointmentTime);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(appointmentTime);
+        end.setHours(23, 59, 59, 999);
+
+        const booked = await prisma.appointment.findMany({
+          where: {
+            doctorId: doctorRecord.id,
+            scheduledTime: { gte: start, lte: end },
+            status: { notIn: ['cancelled'] },
+          },
+          select: { scheduledTime: true },
+        });
+
+        const bookedHours = new Set(booked.map(a => new Date(a.scheduledTime).getHours()));
+
+        const slots = [];
+        for (let h = 8; h < 17; h++) {
+          if (!bookedHours.has(h)) {
+            const slot = new Date(appointmentTime);
+            slot.setHours(h, 0, 0, 0);
+            slots.push(slot.toISOString());
+          }
+        }
+
+        return res.status(409).json({
+          success: false,
+          error: "This time slot is already booked for this doctor. Please select from available slots below.",
+          available_slots: slots
+        });
+      }
 
       const appointment = await prisma.appointment.create({
         data: {

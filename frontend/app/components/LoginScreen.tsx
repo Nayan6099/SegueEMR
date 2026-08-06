@@ -73,19 +73,21 @@ export function LoginScreen({ toast, loginForm, setLoginForm, handleLogin, varia
               />
             </div>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="you@example.com (optional)"
-                value={loginForm.email || ''}
-                onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none sm:text-sm"
-              />
-            </div>
+            {variant !== 'staff' && (
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-slate-700">
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com (optional)"
+                  value={loginForm.email || ''}
+                  onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none sm:text-sm"
+                />
+              </div>
+            )}
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-700">

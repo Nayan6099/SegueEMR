@@ -230,7 +230,8 @@ export function DoctorDashboard(props: any) {
     const t = setTimeout(async () => {
       setFinderLoading(true);
       try {
-        const res = await api.searchPatients(finderQuery.trim());
+        const docId = currentUser?.role === 'doctor' ? (currentUser?.doctorId || currentUser?.userId) : undefined;
+        const res = await api.searchPatients(finderQuery.trim(), docId);
         if (res.success) setFinderResults(res.data || []);
       } catch { /* non-fatal */ }
       finally { setFinderLoading(false); }
@@ -305,15 +306,19 @@ export function DoctorDashboard(props: any) {
         recordedBy: currentUser?.userId,
         ...chartNoteForm,
       });
-      if (res.success && res.data) {
+      if (res?.success && res?.data) {
         setChartSoapData(p => ({ ...p, [chartNoteAptId]: res.data }));
         setChartNoteAptId(null);
         setChartNoteForm({ soapSubjective: '', soapObjective: '', soapAssessment: '', soapPlan: '' });
+        showToast?.('SOAP note saved', false);
+      } else {
+        showToast?.(`Failed to save note: ${res?.error || 'Unknown error'}`, true);
       }
-      showToast?.('SOAP note saved', false);
-      setChartNoteForm({ soapSubjective: '', soapObjective: '', soapAssessment: '', soapPlan: '' });
-    } catch { /* non-fatal */ }
-    finally { setChartNoteSaving(false); }
+    } catch (err: any) {
+      showToast?.(`Failed to save note: ${err?.message || 'Network error'}`, true);
+    } finally {
+      setChartNoteSaving(false);
+    }
   }, [chartNoteAptId, chartPatientId, chartNoteForm, chartNoteSaving, currentUser]);
 
   // Phase 4 Save Handlers
@@ -1363,7 +1368,7 @@ export function DoctorDashboard(props: any) {
                         {!(chartData.officeNotes || []).length ? <p className="text-sm text-slate-500 py-4 text-center">No office notes.</p> : chartData.officeNotes.map((n: any) => (
                           <div key={n.id} className="bg-white border border-slate-200 p-3 rounded shadow-sm">
                             <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.content}</p>
-                            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><User className="h-3 w-3" /> {n.authorName} &bull; {new Date(n.createdAt).toLocaleString()}</p>
+                            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><UserIcon className="h-3 w-3" /> {n.authorName} &bull; {new Date(n.createdAt).toLocaleString()}</p>
                           </div>
                         ))}
                       </div>
@@ -1385,7 +1390,7 @@ export function DoctorDashboard(props: any) {
                           <div key={e.id} className="bg-white border border-slate-200 p-3 rounded shadow-sm">
                             <p className="font-semibold text-slate-800 text-sm">{e.title}</p>
                             <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{e.content}</p>
-                            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><User className="h-3 w-3" /> {e.authorName} &bull; {new Date(e.createdAt).toLocaleString()}</p>
+                            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><UserIcon className="h-3 w-3" /> {e.authorName} &bull; {new Date(e.createdAt).toLocaleString()}</p>
                           </div>
                         ))}
                       </div>

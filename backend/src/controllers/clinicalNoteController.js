@@ -71,6 +71,13 @@ class ClinicalNoteController {
 
             return res.json({ success: true, data: mapClinicalNote(note) });
         } catch (err) {
+            // Foreign key violation: the appointmentId does not exist in the Appointment table
+            if (err.code === 'P2003' || (err.message && err.message.includes('Foreign key constraint'))) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'The appointment does not exist. Please select a valid appointment before writing a note.'
+                });
+            }
             return res.status(500).json({ success: false, error: err.message });
         }
     }
